@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QTextEdit, QPushButton, QListWidget,
     QHBoxLayout, QVBoxLayout, QGridLayout, QFileDialog, QFrame, QSizePolicy, QTabWidget,
-    QListWidgetItem, QCheckBox, QComboBox
+    QListWidgetItem, QCheckBox, QComboBox, QDateEdit
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
 import sys
 import configparser
@@ -96,8 +96,10 @@ class VisitInputWidget(QWidget):
         tab = QWidget()
         # 第二排：就诊日期、医院名称、科室名称、医生名称
         date_label = QLabel('就诊日期')
-        self.date_edit = QLineEdit()
-        self.date_edit.setPlaceholderText('就诊日期输入框')
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)  # 允许弹出日历选择
+        self.date_edit.setDisplayFormat("yyyy-MM-dd")  # 设置日期显示格式
+        self.date_edit.setDate(QDate.currentDate())  # 设置默认日期为当前日期
         self.date_edit.setMinimumWidth(208)
 
         date_hbox = QHBoxLayout()
@@ -384,7 +386,7 @@ class VisitInputWidget(QWidget):
 
     def get_data(self):
         return {
-            'date': self.date_edit.text(),
+            'date': self.date_edit.date().toString("yyyy-MM-dd"),
             'hospital': self.hospital_edit.text(),
             'department': self.department_edit.text(),
             'doctor': self.doctor_edit.text(),
