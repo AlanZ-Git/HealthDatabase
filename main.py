@@ -200,10 +200,10 @@ class VisitInputWidget(QWidget):
         self.remove_attachment_btn = QPushButton('移除附件按钮')
         self.remove_all_attachment_btn = QPushButton('移除所有附件按钮')
         self.upload_btn = QPushButton('上传本次记录按钮')
+        self.upload_btn.clicked.connect(self.upload_visit_record)
         self.add_attachment_btn.clicked.connect(self.add_attachment)
         self.remove_attachment_btn.clicked.connect(self.remove_attachment)
         self.remove_all_attachment_btn.clicked.connect(self.remove_all_attachment)
-        self.upload_btn.clicked.connect(self.upload_record)
         attach_btn_h = QHBoxLayout()
         attach_btn_h.addWidget(self.add_attachment_btn)
         attach_btn_h.addWidget(self.remove_attachment_btn)
@@ -295,32 +295,6 @@ class VisitInputWidget(QWidget):
     def remove_all_attachment(self):
         self.attachment_list.clear()
         self._update_placeholder()
-
-    def upload_record(self):
-        """上传本次记录"""
-        from PyQt6.QtWidgets import QMessageBox
-        
-        # 检查是否选择了用户
-        current_user = self.user_combo.currentText()
-        if current_user == '请选择用户...':
-            QMessageBox.warning(self, '警告', '请先选择用户！')
-            return
-        
-        # 获取表单数据
-        data = self.get_data()
-        
-        # 检查必填字段
-        if not data['hospital'].strip():
-            QMessageBox.warning(self, '警告', '请填写医院名称！')
-            return
-        
-        # 使用data_storage保存记录
-        if self.data_storage.save_visit_record(current_user, data):
-            QMessageBox.information(self, '成功', '就诊记录保存成功！')
-            # 清空表单
-            self.clear_form()
-        else:
-            QMessageBox.warning(self, '错误', '保存就诊记录失败！')
 
     def clear_form(self):
         """清空表单"""
@@ -469,19 +443,104 @@ class VisitInputWidget(QWidget):
             print(f"显示前5个历史医院名称: {filtered_hospitals}")
         
         # 更新自动完成列表
-        self.hospital_completer.setModel(None)  # 清除旧模型
+        self.hospital_completer.setModel(None)
         if filtered_hospitals:
             from PyQt6.QtCore import QStringListModel
             model = QStringListModel(filtered_hospitals)
             self.hospital_completer.setModel(model)
-            print(f"已设置自动完成模型，包含 {len(filtered_hospitals)} 个项目")
-        else:
-            print("没有找到匹配的医院名称")
     
     def on_user_changed(self):
         """当用户选择改变时调用"""
         # 更新医院名称自动完成列表
         self.update_hospital_completer()
+
+    def _clear_form_after_upload(self):
+        """上传记录后清空表单，但保持用户选择和就诊日期不变"""
+        # 保存当前用户选择和就诊日期
+        current_user = self.user_combo.currentText()
+        current_date = self.date_edit.date()
+        
+        # 清空所有输入字段
+        self.hospital_edit.clear()
+        self.department_edit.clear()
+        self.doctor_edit.clear()
+        self.organ_system_edit.clear()
+        self.reason_edit.clear()
+        self.diagnosis_edit.clear()
+        self.medication_edit.clear()
+        self.remark_edit.clear()
+        self.attachment_list.clear()
+        self._update_placeholder()
+        
+        # 恢复用户选择和就诊日期
+        self.user_combo.setCurrentText(current_user)
+        self.date_edit.setDate(current_date)
+
+    def upload_visit_record(self):
+        """上传本次就诊记录"""
+        from PyQt6.QtWidgets import QMessageBox
+        
+        # 检查是否选择了用户
+        current_user = self.user_combo.currentText()
+        if current_user == '请选择用户...':
+            QMessageBox.warning(self, '警告', '请先选择用户！')
+            return
+        
+        # 收集表单数据并整理成数据库字段字典
+        visit_data = self._collect_visit_data()
+        
+        # 显示收集到的数据（调试用）
+        print("=== 收集到的就诊记录数据 ===")
+        for key, value in visit_data.items():
+            print(f"{key}: {value!r}")
+        print("================================")
+        
+        # 调用data_storage模块上传记录
+        try:
+            success = self.data_storage.upload_visit_record(visit_data)
+            
+            if success:
+                QMessageBox.information(self, '成功', '就诊记录上传成功！')
+                # 上传成功后清空表单，但保持用户选择和就诊日期不变
+                self._clear_form_after_upload()
+            else:
+                QMessageBox.warning(self, '错误', '就诊记录上传失败！请检查数据格式和数据库连接。')
+                
+        except Exception as e:
+            print(f"上传记录时发生错误: {e}")
+            QMessageBox.critical(self, '错误', f'上传记录时发生错误：\n{str(e)}')
+
+    def _collect_visit_data(self) -> dict:
+        """
+        收集当前表单的所有数据并整理成数据库字段字典
+        
+        Returns:
+            包含所有表单数据的字典，字段对应数据库表结构
+        """
+        # 获取所有附件文件路径（不管是否被勾选）
+        attachment_paths = []
+        for i in range(self.attachment_list.count()):
+            item = self.attachment_list.item(i)
+            file_path = item.data(Qt.ItemDataRole.UserRole)
+            if file_path:
+                attachment_paths.append(file_path)
+        
+        # 整理数据成数据库字段格式
+        visit_data = {
+            'user_name': self.user_combo.currentText(),
+            'date': self.date_edit.date().toString("yyyy-MM-dd"),
+            'hospital': self.hospital_edit.text().strip(),
+            'department': self.department_edit.text().strip(),
+            'doctor': self.doctor_edit.text().strip(),
+            'organ_system': self.organ_system_edit.text().strip(),
+            'reason': self.reason_edit.toPlainText().strip(),
+            'diagnosis': self.diagnosis_edit.toPlainText().strip(),
+            'medication': self.medication_edit.toPlainText().strip(),
+            'remark': self.remark_edit.toPlainText().strip(),
+            'attachment_paths': attachment_paths
+        }
+        
+        return visit_data
 
 
 
