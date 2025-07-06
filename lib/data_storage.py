@@ -68,7 +68,7 @@ class DataStorage:
             # 创建就诊记录表
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS visit_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    visit_record_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     date TEXT NOT NULL,
                     hospital TEXT,
                     department TEXT,
@@ -86,7 +86,7 @@ class DataStorage:
             # 创建附件记录表
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attachment_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    attachment_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     visit_record_id INTEGER NOT NULL,
                     file_path TEXT NOT NULL,
                     FOREIGN KEY (visit_record_id) REFERENCES visit_records(id) ON DELETE CASCADE
