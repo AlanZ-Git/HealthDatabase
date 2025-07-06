@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QTextEdit, QPushButton, QListWidget,
     QHBoxLayout, QVBoxLayout, QGridLayout, QFileDialog, QFrame, QSizePolicy, QTabWidget,
-    QListWidgetItem, QCheckBox, QComboBox, QDateEdit
+    QListWidgetItem, QCheckBox, QComboBox, QDateEdit, QCompleter
 )
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
@@ -62,6 +62,8 @@ class VisitInputWidget(QWidget):
         self.user_combo = QComboBox()
         self.user_combo.addItem('请选择用户...')
         self.user_combo.setMinimumWidth(208)
+        # 当用户选择改变时，更新医院名称自动完成列表
+        self.user_combo.currentTextChanged.connect(self.on_user_changed)
         self.create_user_btn = QPushButton('创建新用户')
         self.create_user_btn.clicked.connect(self.create_new_user)
         self.delete_user_btn = QPushButton('删除用户')
@@ -112,6 +114,12 @@ class VisitInputWidget(QWidget):
         self.hospital_edit = QLineEdit()
         self.hospital_edit.setPlaceholderText('医院名称输入框')
         self.hospital_edit.setMinimumWidth(208)
+        # 为医院名称输入框添加自动完成功能
+        self.hospital_completer = QCompleter()
+        self.hospital_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)  # 不区分大小写
+        self.hospital_edit.setCompleter(self.hospital_completer)
+        # 当用户开始输入时更新自动完成列表
+        self.hospital_edit.textChanged.connect(self.update_hospital_completer)
         hospital_hbox = QHBoxLayout()
         hospital_hbox.setSpacing(6)
         hospital_hbox.addWidget(hospital_label)
@@ -397,6 +405,49 @@ class VisitInputWidget(QWidget):
             'remark': self.remark_edit.toPlainText(),
             'attachment': [self.attachment_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.attachment_list.count())]
         }
+    
+    def update_hospital_completer(self):
+        """更新医院名称自动完成列表"""
+        current_user = self.user_combo.currentText()
+        if current_user == '请选择用户...':
+            return
+        
+        # 获取历史医院名称
+        history_hospitals = self.data_storage.get_history_hospitals(current_user, limit=20)  # 增加查询数量以支持过滤
+        
+        # 获取当前输入内容
+        current_text = self.hospital_edit.text().strip()
+        
+        # 调试信息
+        print(f"当前用户: {current_user}")
+        print(f"历史医院名称: {history_hospitals}")
+        print(f"当前输入: '{current_text}'")
+        
+        # 根据输入内容过滤医院名称
+        if current_text:
+            # 支持模糊匹配：包含输入内容的医院名称
+            filtered_hospitals = [hospital for hospital in history_hospitals 
+                                if current_text.lower() in hospital.lower()]
+            print(f"过滤后的医院名称: {filtered_hospitals}")
+        else:
+            # 如果没有输入内容，显示前5个历史医院名称
+            filtered_hospitals = history_hospitals[:5]
+            print(f"显示前5个历史医院名称: {filtered_hospitals}")
+        
+        # 更新自动完成列表
+        self.hospital_completer.setModel(None)  # 清除旧模型
+        if filtered_hospitals:
+            from PyQt6.QtCore import QStringListModel
+            model = QStringListModel(filtered_hospitals)
+            self.hospital_completer.setModel(model)
+            print(f"已设置自动完成模型，包含 {len(filtered_hospitals)} 个项目")
+        else:
+            print("没有找到匹配的医院名称")
+    
+    def on_user_changed(self):
+        """当用户选择改变时调用"""
+        # 更新医院名称自动完成列表
+        self.update_hospital_completer()
 
 
 

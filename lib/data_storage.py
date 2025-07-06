@@ -121,73 +121,125 @@ class DataStorage:
             print(f"删除用户失败: {e}")
             return False
     
-
-    def get_user_history(self, user_name: str, field: str, limit: int = 5) -> List[str]:
+    def get_history_hospitals(self, user_name: str, limit: int = 5) -> List[str]:
         """
-        获取用户历史输入记录（用于自动补全）
+        获取用户历史输入的医院名称
         
         Args:
             user_name: 用户名
-            field: 字段名（hospital, department, doctor）
-            limit: 返回记录数量限制
+            limit: 返回结果数量限制，默认5个
             
         Returns:
-            历史记录列表
+            医院名称列表，按从新到旧排序
         """
         try:
             db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return []
+            
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # 构建查询语句
-            query = f'''
-                SELECT DISTINCT {field}
+            # 查询非空的医院名称，按创建时间倒序排列
+            cursor.execute('''
+                SELECT DISTINCT hospital 
                 FROM visit_records 
-                WHERE {field} IS NOT NULL AND {field} != ''
-                ORDER BY updated_at DESC
-                LIMIT {limit}
-            '''
+                WHERE hospital IS NOT NULL AND hospital != ''
+                ORDER BY created_at DESC
+                LIMIT ?
+            ''', (limit,))
             
-            cursor.execute(query)
-            results = cursor.fetchall()
+            hospitals = [row[0] for row in cursor.fetchall()]
             conn.close()
             
-            return [row[0] for row in results]
+            return hospitals
             
         except Exception as e:
-            print(f"获取用户历史记录失败: {e}")
+            print(f"查询历史医院名称失败: {e}")
             return []
     
-    def get_doctors_by_hospital(self, user_name: str, hospital: str, limit: int = 5) -> List[str]:
+    def get_history_departments(self, user_name: str, limit: int = 5) -> List[str]:
         """
-        根据医院名称获取医生列表
+        获取用户历史输入的科室名称
         
         Args:
             user_name: 用户名
-            hospital: 医院名称
-            limit: 返回记录数量限制
+            limit: 返回结果数量限制，默认5个
             
         Returns:
-            医生名称列表
+            科室名称列表，按从新到旧排序
         """
         try:
             db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return []
+            
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
+            # 查询非空的科室名称，按创建时间倒序排列
             cursor.execute('''
-                SELECT DISTINCT doctor
+                SELECT DISTINCT department 
                 FROM visit_records 
-                WHERE hospital = ? AND doctor IS NOT NULL AND doctor != ''
-                ORDER BY updated_at DESC
+                WHERE department IS NOT NULL AND department != ''
+                ORDER BY created_at DESC
                 LIMIT ?
-            ''', (hospital, limit))
+            ''', (limit,))
             
-            results = cursor.fetchall()
+            departments = [row[0] for row in cursor.fetchall()]
             conn.close()
             
-            return [row[0] for row in results]
+            return departments
             
         except Exception as e:
-            print(f"获取医生列表失败: {e}")
+            print(f"查询历史科室名称失败: {e}")
+            return []
+    
+    def get_history_doctors(self, user_name: str, hospital: Optional[str] = None, limit: int = 5) -> List[str]:
+        """
+        获取用户历史输入的医生名称
+        
+        Args:
+            user_name: 用户名
+            hospital: 医院名称，如果提供则只查询该医院的医生
+            limit: 返回结果数量限制，默认5个
+            
+        Returns:
+            医生名称列表，按从新到旧排序
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return []
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            if hospital and hospital.strip():
+                # 如果指定了医院，则只查询该医院的医生
+                cursor.execute('''
+                    SELECT DISTINCT doctor 
+                    FROM visit_records 
+                    WHERE doctor IS NOT NULL AND doctor != '' 
+                    AND hospital = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ''', (hospital, limit))
+            else:
+                # 查询所有医生
+                cursor.execute('''
+                    SELECT DISTINCT doctor 
+                    FROM visit_records 
+                    WHERE doctor IS NOT NULL AND doctor != ''
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ''', (limit,))
+            
+            doctors = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            return doctors
+            
+        except Exception as e:
+            print(f"查询历史医生名称失败: {e}")
             return []
