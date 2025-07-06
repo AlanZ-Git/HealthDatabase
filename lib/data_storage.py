@@ -65,21 +65,32 @@ class DataStorage:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # 创建就诊记录表  TODO: 需要检查是否正确
+            # 创建就诊记录表
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS visit_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date TEXT,
+                    date TEXT NOT NULL,
                     hospital TEXT,
                     department TEXT,
                     doctor TEXT,
-                    system TEXT,
+                    organ_system TEXT,
                     reason TEXT,
                     diagnosis TEXT,
                     medication TEXT,
                     remark TEXT,
+                    attachments TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 创建附件记录表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attachment_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    visit_record_id INTEGER NOT NULL,
+                    file_path TEXT NOT NULL,
+                    FOREIGN KEY (visit_record_id) REFERENCES visit_records(id) ON DELETE CASCADE
                 )
             ''')
             
