@@ -185,14 +185,14 @@ class VisitInputWidget(QWidget):
         # 附件按钮区（横向）
         self.add_attachment_btn = QPushButton('添加附件按钮')
         self.remove_attachment_btn = QPushButton('移除附件按钮')
-        self.remove_all_attachments_btn = QPushButton('移除所有附件按钮')
+        self.remove_all_attachment_btn = QPushButton('移除所有附件按钮')
         self.add_attachment_btn.clicked.connect(self.add_attachment)
         self.remove_attachment_btn.clicked.connect(self.remove_attachment)
-        self.remove_all_attachments_btn.clicked.connect(self.remove_all_attachments)
+        self.remove_all_attachment_btn.clicked.connect(self.remove_all_attachment)
         attach_btn_h = QHBoxLayout()
         attach_btn_h.addWidget(self.add_attachment_btn)
         attach_btn_h.addWidget(self.remove_attachment_btn)
-        attach_btn_h.addWidget(self.remove_all_attachments_btn)
+        attach_btn_h.addWidget(self.remove_all_attachment_btn)
         attach_btn_h.addStretch()
         # 附件展示区
         self.attachment_list = QListWidget()
@@ -290,7 +290,7 @@ class VisitInputWidget(QWidget):
             self.attachment_list.takeItem(i)
         self._update_placeholder()
 
-    def remove_all_attachments(self):
+    def remove_all_attachment(self):
         self.attachment_list.clear()
         self._update_placeholder()
 
@@ -395,7 +395,7 @@ class VisitInputWidget(QWidget):
             'diagnosis': self.diagnosis_edit.toPlainText(),
             'medication': self.medication_edit.toPlainText(),
             'remark': self.remark_edit.toPlainText(),
-            'attachments': [self.attachment_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.attachment_list.count())]
+            'attachment': [self.attachment_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.attachment_list.count())]
         }
 
 
