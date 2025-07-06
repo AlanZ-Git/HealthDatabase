@@ -43,4 +43,4 @@ CREATE TABLE attachment_records (
 ## 附件存储规则
 通过UI上传的附件会统一复制到Appendix文件夹下，并修改命名
 
-假设原附件命名 name ，Appendix统一管理的命名格式为 `{visit_record_id}_{attachment_id}_{name}`，维持扩展名不变，当新命名长度大于100个字符时，截断name，维持扩展名
+假设原附件命名 name ，Appendix统一管理的命名格式为 `{user}/{visit_record_id}_{attachment_id}_{name}`，维持扩展名不变，当新命名长度大于100个字符时，截断name，维持扩展名

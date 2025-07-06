@@ -310,7 +310,7 @@ class DataStorage:
             # 处理附件路径
             attachment_paths = visit_data.get('attachment_paths', [])
             if attachment_paths:
-                self._process_attachments(cursor, visit_record_id, attachment_paths)
+                self._process_attachments(cursor, visit_record_id, attachment_paths, user_name)
             
             conn.commit()
             conn.close()
@@ -322,7 +322,7 @@ class DataStorage:
             print(f"上传就诊记录失败: {e}")
             return False
     
-    def _process_attachments(self, cursor, visit_record_id: int, attachment_paths: List[str]):
+    def _process_attachments(self, cursor, visit_record_id: int, attachment_paths: List[str], user_name: str):
         """
         处理附件路径
         
@@ -330,11 +330,17 @@ class DataStorage:
             cursor: 数据库游标
             visit_record_id: 就诊记录ID
             attachment_paths: 附件路径列表
+            user_name: 用户名
         """
         # 确保Appendix目录存在
         appendix_dir = 'Appendix'
         if not os.path.exists(appendix_dir):
             os.makedirs(appendix_dir)
+        
+        # 确保用户目录存在
+        user_dir = os.path.join(appendix_dir, user_name)
+        if not os.path.exists(user_dir):
+            os.makedirs(user_dir)
         
         attachment_id = 1
         for attachment_path in attachment_paths:
@@ -361,8 +367,8 @@ class DataStorage:
                         # 如果连基本结构都放不下，使用最简单的命名
                         new_name = f"{visit_record_id}_{attachment_id}{ext}"
                 
-                # 构建目标路径
-                target_path = os.path.join(appendix_dir, new_name)
+                # 构建目标路径：{user}/{visit_record_id}_{attachment_id}_{name}
+                target_path = os.path.join(user_dir, new_name)
                 
                 # 复制文件到Appendix目录
                 import shutil
