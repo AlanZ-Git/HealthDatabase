@@ -68,6 +68,10 @@ class VisitInputWidget(QWidget):
         self.create_user_btn.clicked.connect(self.create_new_user)
         self.delete_user_btn = QPushButton('删除用户')
         self.delete_user_btn.clicked.connect(self.delete_user)
+        self.settings_btn = QPushButton('设置')
+        self.settings_btn.clicked.connect(self.open_settings)
+        # 设置按钮宽度和创建新用户按钮一样
+        self.settings_btn.setFixedWidth(100)  # 设置固定宽度，与创建新用户按钮保持一致
         
         # 读取data文件夹下的sqlite文件
         self.load_users()
@@ -79,7 +83,8 @@ class VisitInputWidget(QWidget):
         user_grid.addWidget(self.user_combo, 0, 1)
         user_grid.addWidget(self.create_user_btn, 0, 2)
         user_grid.addWidget(self.delete_user_btn, 0, 3)
-        user_grid.setColumnStretch(4, 1)  # 最后一列拉伸
+        user_grid.setColumnStretch(4, 1)  # 中间区域拉伸
+        user_grid.addWidget(self.settings_btn, 0, 5)  # 设置按钮单独放在最右端
 
         # 顶部Tab
         self.tabs = QTabWidget()
@@ -194,14 +199,17 @@ class VisitInputWidget(QWidget):
         self.add_attachment_btn = QPushButton('添加附件按钮')
         self.remove_attachment_btn = QPushButton('移除附件按钮')
         self.remove_all_attachment_btn = QPushButton('移除所有附件按钮')
+        self.upload_btn = QPushButton('上传本次记录按钮')
         self.add_attachment_btn.clicked.connect(self.add_attachment)
         self.remove_attachment_btn.clicked.connect(self.remove_attachment)
         self.remove_all_attachment_btn.clicked.connect(self.remove_all_attachment)
+        self.upload_btn.clicked.connect(self.upload_record)
         attach_btn_h = QHBoxLayout()
         attach_btn_h.addWidget(self.add_attachment_btn)
         attach_btn_h.addWidget(self.remove_attachment_btn)
         attach_btn_h.addWidget(self.remove_all_attachment_btn)
         attach_btn_h.addStretch()
+        attach_btn_h.addWidget(self.upload_btn)  # 上传按钮右对齐到附件展示区
         # 附件展示区
         self.attachment_list = QListWidget()
         self.attachment_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -228,23 +236,9 @@ class VisitInputWidget(QWidget):
         attach_v.addWidget(QLabel('附件'))
         attach_v.addLayout(attach_btn_h)
         attach_v.addWidget(self.attachment_list)
-        # 右侧竖直按钮区
-        self.upload_btn = QPushButton('上传本次记录按钮')
-        self.open_db_btn = QPushButton('打开数据库查看按钮')
-        self.settings_btn = QPushButton('设置')
-        self.settings_btn.clicked.connect(self.open_settings)
-        right_btn_v = QVBoxLayout()
-        right_btn_v.addWidget(self.upload_btn)
-        right_btn_v.addSpacing(20)
-        right_btn_v.addWidget(self.open_db_btn)
-        right_btn_v.addSpacing(20)
-        right_btn_v.addWidget(self.settings_btn)
-        right_btn_v.addStretch()
-        # 附件区和右侧按钮横向排列
+        # 附件区布局（移除右侧按钮区）
         bottom_h = QHBoxLayout()
-        bottom_h.addLayout(attach_v, 3)
-        bottom_h.addSpacing(20)
-        bottom_h.addLayout(right_btn_v, 1)
+        bottom_h.addLayout(attach_v)
         # 主体竖直布局
         main_layout = QVBoxLayout()
         main_layout.addLayout(grid_top)
@@ -299,6 +293,46 @@ class VisitInputWidget(QWidget):
         self._update_placeholder()
 
     def remove_all_attachment(self):
+        self.attachment_list.clear()
+        self._update_placeholder()
+
+    def upload_record(self):
+        """上传本次记录"""
+        from PyQt6.QtWidgets import QMessageBox
+        
+        # 检查是否选择了用户
+        current_user = self.user_combo.currentText()
+        if current_user == '请选择用户...':
+            QMessageBox.warning(self, '警告', '请先选择用户！')
+            return
+        
+        # 获取表单数据
+        data = self.get_data()
+        
+        # 检查必填字段
+        if not data['hospital'].strip():
+            QMessageBox.warning(self, '警告', '请填写医院名称！')
+            return
+        
+        # 使用data_storage保存记录
+        if self.data_storage.save_visit_record(current_user, data):
+            QMessageBox.information(self, '成功', '就诊记录保存成功！')
+            # 清空表单
+            self.clear_form()
+        else:
+            QMessageBox.warning(self, '错误', '保存就诊记录失败！')
+
+    def clear_form(self):
+        """清空表单"""
+        self.date_edit.setDate(QDate.currentDate())
+        self.hospital_edit.clear()
+        self.department_edit.clear()
+        self.doctor_edit.clear()
+        self.organ_system_edit.clear()
+        self.reason_edit.clear()
+        self.diagnosis_edit.clear()
+        self.medication_edit.clear()
+        self.remark_edit.clear()
         self.attachment_list.clear()
         self._update_placeholder()
 
