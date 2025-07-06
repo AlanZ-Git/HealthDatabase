@@ -148,7 +148,7 @@ class VisitInputWidget(QWidget):
         # 分割线1
         line1 = QFrame(); line1.setFrameShape(QFrame.Shape.HLine); line1.setFrameShadow(QFrame.Shadow.Sunken)
         # 第二排：器官系统、诊断结果、用药信息、备注、症状事由
-        self.system_edit = QLineEdit(); self.system_edit.setPlaceholderText('器官系统输入框')
+        self.organ_system_edit = QLineEdit(); self.organ_system_edit.setPlaceholderText('器官系统输入框')
         self.diagnosis_edit = QTextEdit(); self.diagnosis_edit.setPlaceholderText('诊断结果输入框')
         self.medication_edit = QTextEdit(); self.medication_edit.setPlaceholderText('用药信息输入框')
         self.remark_edit = QTextEdit(); self.remark_edit.setPlaceholderText('备注输入框')
@@ -156,7 +156,7 @@ class VisitInputWidget(QWidget):
         # 左侧：器官系统+症状事由
         left_v = QVBoxLayout()
         left_v.addWidget(QLabel('器官系统'))
-        left_v.addWidget(self.system_edit)
+        left_v.addWidget(self.organ_system_edit)
         left_v.addWidget(QLabel('症状事由'))
         left_v.addWidget(self.reason_edit)
         # 中间：诊断结果
@@ -390,7 +390,7 @@ class VisitInputWidget(QWidget):
             'hospital': self.hospital_edit.text(),
             'department': self.department_edit.text(),
             'doctor': self.doctor_edit.text(),
-            'system': self.system_edit.text(),
+            'organ_system': self.organ_system_edit.text(),
             'reason': self.reason_edit.toPlainText(),
             'diagnosis': self.diagnosis_edit.toPlainText(),
             'medication': self.medication_edit.toPlainText(),
