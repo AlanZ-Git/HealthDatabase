@@ -23,7 +23,6 @@ CREATE TABLE visit_records (
     diagnosis TEXT COMMENT '诊断结果',
     medication TEXT COMMENT '用药信息',
     remark TEXT COMMENT '备注',
-    attachment TEXT COMMENT '附件路径',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间'
 );

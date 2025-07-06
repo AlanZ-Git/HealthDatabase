@@ -78,7 +78,6 @@ class DataStorage:
                     diagnosis TEXT,
                     medication TEXT,
                     remark TEXT,
-                    attachment TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
