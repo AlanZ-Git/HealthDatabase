@@ -1,0 +1,143 @@
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QLabel, QLineEdit, QPushButton, 
+    QVBoxLayout, QHBoxLayout, QMessageBox, QSlider
+)
+from PyQt6.QtCore import Qt
+import configparser
+import os
+import sys
+
+class SettingsManager(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('设置管理')
+        self.setFixedSize(400, 200)
+        self.init_ui()
+        self.load_current_settings()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        
+        # 字体大小设置
+        font_label = QLabel('字体大小倍数:')
+        self.font_scale_edit = QLineEdit()
+        self.font_scale_edit.setPlaceholderText('输入1.0-2.0之间的数值')
+        
+        # 滑块控制
+        self.font_scale_slider = QSlider(Qt.Orientation.Horizontal)
+        self.font_scale_slider.setMinimum(50)  # 0.5 * 100
+        self.font_scale_slider.setMaximum(200)  # 2.0 * 100
+        self.font_scale_slider.setValue(120)  # 默认1.2
+        
+        # 当前值显示
+        self.current_value_label = QLabel('当前值: 1.2')
+        
+        # 按钮
+        save_btn = QPushButton('保存设置')
+        save_btn.clicked.connect(self.save_settings)
+        
+        reset_btn = QPushButton('重置为默认值')
+        reset_btn.clicked.connect(self.reset_to_default)
+        
+        # 布局
+        font_layout = QHBoxLayout()
+        font_layout.addWidget(font_label)
+        font_layout.addWidget(self.font_scale_edit)
+        
+        slider_layout = QHBoxLayout()
+        slider_layout.addWidget(QLabel('0.5'))
+        slider_layout.addWidget(self.font_scale_slider)
+        slider_layout.addWidget(QLabel('2.0'))
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(reset_btn)
+        
+        layout.addLayout(font_layout)
+        layout.addWidget(self.current_value_label)
+        layout.addLayout(slider_layout)
+        layout.addLayout(btn_layout)
+        layout.addStretch()
+        
+        # 连接信号
+        self.font_scale_edit.textChanged.connect(self.on_text_changed)
+        self.font_scale_slider.valueChanged.connect(self.on_slider_changed)
+        
+        self.setLayout(layout)
+
+    def load_current_settings(self):
+        """加载当前设置"""
+        config = configparser.ConfigParser()
+        settings_file = 'settings.ini'
+        
+        if os.path.exists(settings_file):
+            config.read(settings_file, encoding='utf-8')
+            try:
+                font_scale = float(config.get('Display', 'font_scale', fallback='1.2'))
+            except (ValueError, configparser.Error):
+                font_scale = 1.2
+        else:
+            font_scale = 1.2
+        
+        self.font_scale_edit.setText(str(font_scale))
+        self.font_scale_slider.setValue(int(font_scale * 100))
+        self.update_current_value_label()
+
+    def on_text_changed(self):
+        """文本输入框变化时的处理"""
+        try:
+            value = float(self.font_scale_edit.text())
+            if 0.5 <= value <= 2.0:
+                self.font_scale_slider.setValue(int(value * 100))
+                self.update_current_value_label()
+        except ValueError:
+            pass
+
+    def on_slider_changed(self):
+        """滑块变化时的处理"""
+        value = self.font_scale_slider.value() / 100.0
+        self.font_scale_edit.setText(f"{value:.1f}")
+        self.update_current_value_label()
+
+    def update_current_value_label(self):
+        """更新当前值显示"""
+        try:
+            value = float(self.font_scale_edit.text())
+            self.current_value_label.setText(f'当前值: {value:.1f}')
+        except ValueError:
+            self.current_value_label.setText('当前值: 无效')
+
+    def save_settings(self):
+        """保存设置"""
+        try:
+            font_scale = float(self.font_scale_edit.text())
+            if not (0.5 <= font_scale <= 2.0):
+                QMessageBox.warning(self, '警告', '字体大小倍数必须在0.5到2.0之间！')
+                return
+            
+            config = configparser.ConfigParser()
+            config['Display'] = {'font_scale': str(font_scale)}
+            
+            with open('settings.ini', 'w', encoding='utf-8') as f:
+                config.write(f)
+            
+            QMessageBox.information(self, '成功', '设置已保存！重启应用程序后生效。')
+            
+        except ValueError:
+            QMessageBox.warning(self, '错误', '请输入有效的数字！')
+
+    def reset_to_default(self):
+        """重置为默认值"""
+        self.font_scale_edit.setText('1.2')
+        self.font_scale_slider.setValue(120)
+        self.update_current_value_label()
+
+def show_settings_manager():
+    """显示设置管理器"""
+    app = QApplication(sys.argv)
+    window = SettingsManager()
+    window.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    show_settings_manager() 

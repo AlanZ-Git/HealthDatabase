@@ -1,0 +1,10 @@
+# 用户信息文件
+Appendix/
+data/
+
+# 缓存文件
+__pycache__/
+
+# 个人文件
+design/
+就诊记录.md
