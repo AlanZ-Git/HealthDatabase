@@ -75,6 +75,8 @@ class VisitInputWidget(QWidget):
         
         # 读取data文件夹下的sqlite文件
         self.load_users()
+        # 加载上次选择的用户
+        self.load_last_user()
         
         # 用户选择布局
         user_grid = QGridLayout()
@@ -450,9 +452,24 @@ class VisitInputWidget(QWidget):
             self.hospital_completer.setModel(model)
     
     def on_user_changed(self):
-        """当用户选择改变时调用"""
+        # 保护：只有当 hospital_edit 存在时才执行
+        if not hasattr(self, 'hospital_edit'):
+            return
         # 更新医院名称自动完成列表
         self.update_hospital_completer()
+        # 保存当前用户到history.ini
+        current_user = self.user_combo.currentText()
+        if current_user and current_user != '请选择用户...':
+            import configparser
+            config = configparser.ConfigParser()
+            history_file = 'history.ini'
+            if os.path.exists(history_file):
+                config.read(history_file, encoding='utf-8')
+            if 'History' not in config:
+                config['History'] = {}
+            config['History']['last_user'] = current_user
+            with open(history_file, 'w', encoding='utf-8') as f:
+                config.write(f)
 
     def _clear_form_after_upload(self):
         """上传记录后清空表单，但保持用户选择和就诊日期不变"""
@@ -542,7 +559,18 @@ class VisitInputWidget(QWidget):
         
         return visit_data
 
-
+    def load_last_user(self):
+        import configparser
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        last_user = None
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+            last_user = config.get('History', 'last_user', fallback=None)
+        if last_user and self.user_combo.findText(last_user) != -1:
+            self.user_combo.setCurrentText(last_user)
+        elif self.user_combo.count() == 1:
+            self.user_combo.setCurrentText('请创建新用户')
 
 def show_ui():
     app = QApplication(sys.argv)
