@@ -68,8 +68,7 @@ class TableViewer(QWidget):
         # 定义列标题
         self.headers = [
             "记录ID", "就诊日期", "医院", "科室", "医生", 
-            "器官系统", "就诊原因", "诊断", "用药", "备注", 
-            "创建时间", "更新时间"
+            "器官系统", "症状事由", "诊断结果", "用药信息", "备注"
         ]
         
         self.table.setColumnCount(len(self.headers))
@@ -93,14 +92,10 @@ class TableViewer(QWidget):
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # 诊断列自动拉伸
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)  # 用药列自动拉伸
         header.setSectionResizeMode(9, QHeaderView.ResizeMode.Stretch)  # 备注列自动拉伸
-        header.setSectionResizeMode(10, QHeaderView.ResizeMode.Fixed)  # 创建时间列固定宽度
-        header.setSectionResizeMode(11, QHeaderView.ResizeMode.Fixed)  # 更新时间列固定宽度
         
         # 设置固定列的宽度
-        self.table.setColumnWidth(0, 80)   # ID列
+        self.table.setColumnWidth(0, 60)   # ID列
         self.table.setColumnWidth(1, 100)  # 日期列
-        self.table.setColumnWidth(10, 150) # 创建时间列
-        self.table.setColumnWidth(11, 150) # 更新时间列
     
     def set_user(self, user_name: str):
         """设置当前用户并加载数据"""
@@ -145,11 +140,9 @@ class TableViewer(QWidget):
             self.table.setItem(row, 7, QTableWidgetItem(str(record.get('diagnosis', ''))))
             self.table.setItem(row, 8, QTableWidgetItem(str(record.get('medication', ''))))
             self.table.setItem(row, 9, QTableWidgetItem(str(record.get('remark', ''))))
-            self.table.setItem(row, 10, QTableWidgetItem(str(record.get('created_at', ''))))
-            self.table.setItem(row, 11, QTableWidgetItem(str(record.get('updated_at', ''))))
             
             # 设置空值的显示
-            for col in range(12):
+            for col in range(10):
                 item = self.table.item(row, col)
                 if item and (item.text() == 'None' or item.text() == ''):
                     item.setText('')

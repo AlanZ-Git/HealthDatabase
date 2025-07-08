@@ -73,8 +73,7 @@ class VisitInputWidget(QWidget):
         self.delete_user_btn.clicked.connect(self.delete_user)
         self.settings_btn = QPushButton('设置')
         self.settings_btn.clicked.connect(self.open_settings)
-        # 设置按钮宽度和创建新用户按钮一样
-        self.settings_btn.setFixedWidth(100)  # 设置固定宽度，与创建新用户按钮保持一致
+        self.settings_btn.setFixedWidth(80)  # 设置固定宽度，与刷新按钮保持一致
         
         # 读取data文件夹下的sqlite文件
         self.load_users()
@@ -92,16 +91,16 @@ class VisitInputWidget(QWidget):
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         
         # 用户选择布局
-        user_grid = QGridLayout()
-        user_grid.setSpacing(6)
-        user_grid.addWidget(user_label, 0, 0)
-        user_grid.addWidget(self.user_combo, 0, 1)
-        user_grid.addWidget(self.create_user_btn, 0, 2)
-        user_grid.addWidget(self.delete_user_btn, 0, 3)
-        user_grid.addWidget(separator, 0, 4)
-        user_grid.addWidget(self.visit_input_btn, 0, 5)
-        user_grid.setColumnStretch(6, 1)  # 中间区域拉伸
-        user_grid.addWidget(self.settings_btn, 0, 7)  # 设置按钮单独放在最右端
+        user_layout = QHBoxLayout()
+        user_layout.setSpacing(6)
+        user_layout.addWidget(user_label)
+        user_layout.addWidget(self.user_combo)
+        user_layout.addWidget(self.create_user_btn)
+        user_layout.addWidget(self.delete_user_btn)
+        user_layout.addWidget(separator)
+        user_layout.addWidget(self.visit_input_btn)
+        user_layout.addStretch()  # 中间区域拉伸，与表格查看器的布局保持一致
+        user_layout.addWidget(self.settings_btn)  # 设置按钮在最右端，与刷新按钮对齐
 
         # 表格查看区域（直接嵌入，不使用Tab）
         self.table_viewer = TableViewer()
@@ -111,7 +110,7 @@ class VisitInputWidget(QWidget):
             self.table_viewer.set_user(current_user)
 
         main_layout = QVBoxLayout()
-        main_layout.addLayout(user_grid)  # 用户选择在最上方
+        main_layout.addLayout(user_layout)  # 用户选择在最上方
         main_layout.addSpacing(10)  # 添加一些间距
         main_layout.addWidget(self.table_viewer)  # 表格查看器在下方
         self.setLayout(main_layout)
