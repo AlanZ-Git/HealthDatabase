@@ -80,11 +80,6 @@ class VisitInputWidget(QWidget):
         # 加载上次选择的用户
         self.load_last_user()
         
-        # 录入就诊信息按钮
-        self.visit_input_btn = QPushButton('录入就诊信息')
-        self.visit_input_btn.clicked.connect(self.open_visit_input_dialog)
-        self.visit_input_btn.setFixedWidth(100)
-        
         # 创建竖向分隔符
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
@@ -97,13 +92,14 @@ class VisitInputWidget(QWidget):
         user_layout.addWidget(self.user_combo)
         user_layout.addWidget(self.create_user_btn)
         user_layout.addWidget(self.delete_user_btn)
-        user_layout.addWidget(separator)
-        user_layout.addWidget(self.visit_input_btn)
         user_layout.addStretch()  # 中间区域拉伸，与表格查看器的布局保持一致
         user_layout.addWidget(self.settings_btn)  # 设置按钮在最右端，与刷新按钮对齐
 
         # 表格查看区域（直接嵌入，不使用Tab）
         self.table_viewer = TableViewer()
+        # 连接table_viewer的信号到主界面的处理函数
+        self.table_viewer.visit_input_requested.connect(self.open_visit_input_dialog)
+        
         # 如果已经选择了用户，立即设置
         current_user = self.user_combo.currentText()
         if current_user and current_user != '请选择用户...':
@@ -115,12 +111,6 @@ class VisitInputWidget(QWidget):
         main_layout.addWidget(self.table_viewer)  # 表格查看器在下方
         self.setLayout(main_layout)
         self.resize(1200, 700)
-
-
-
-
-
-
 
     def load_users(self):
         """读取data文件夹下的sqlite文件作为用户列表"""
@@ -212,8 +202,6 @@ class VisitInputWidget(QWidget):
             self.table_viewer.load_data()
         print("记录上传成功，主窗口收到通知")
 
-
-    
     def on_user_changed(self):
         # 保存当前用户到history.ini
         current_user = self.user_combo.currentText()
@@ -232,8 +220,6 @@ class VisitInputWidget(QWidget):
         # 更新表格查看器的用户
         if hasattr(self, 'table_viewer'):
             self.table_viewer.set_user(current_user)
-
-
 
     def load_last_user(self):
         import configparser

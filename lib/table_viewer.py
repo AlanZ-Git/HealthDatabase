@@ -15,6 +15,7 @@ class TableViewer(QWidget):
     
     # 定义信号
     data_updated = pyqtSignal()  # 数据更新信号
+    visit_input_requested = pyqtSignal()  # 录入就诊信息请求信号
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,12 +33,17 @@ class TableViewer(QWidget):
         
         # 顶部信息栏
         self.info_layout = QHBoxLayout()
-        self.user_label = QLabel("当前用户：未选择")
-        self.user_label.setStyleSheet("font-weight: bold; color: #333;")
+        
+        # 录入就诊信息按钮（移动到这里，放在最左边）
+        self.visit_input_btn = QPushButton('录入就诊信息')
+        self.visit_input_btn.clicked.connect(self.on_visit_input_clicked)
+        self.visit_input_btn.setFixedWidth(100)
+        self.info_layout.addWidget(self.visit_input_btn)
+        
+        # 移除原来的用户标签，因为主界面已经显示了
         self.record_count_label = QLabel("记录数量：0")
         self.record_count_label.setStyleSheet("color: #666;")
         
-        self.info_layout.addWidget(self.user_label)
         self.info_layout.addWidget(self.record_count_label)
         self.info_layout.addStretch()
         
@@ -119,15 +125,17 @@ class TableViewer(QWidget):
         header = self.table.horizontalHeader()
         header.sectionResized.connect(self.on_column_width_changed)
     
+    def on_visit_input_clicked(self):
+        """录入就诊信息按钮点击事件"""
+        self.visit_input_requested.emit()  # 发出信号给主界面处理
+    
     def set_user(self, user_name: str):
         """设置当前用户并加载数据"""
         if user_name and user_name != '请选择用户...':
             self.current_user = user_name
-            self.user_label.setText(f"当前用户：{user_name}")
             self.load_data()
         else:
             self.current_user = None
-            self.user_label.setText("当前用户：未选择")
             self.clear_table()
     
     def load_data(self):
