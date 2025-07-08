@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, 
-    QVBoxLayout, QHBoxLayout, QMessageBox, QSlider
+    QVBoxLayout, QHBoxLayout, QMessageBox, QSlider, QFrame
 )
 from PyQt6.QtCore import Qt
 import configparser
@@ -8,10 +8,11 @@ import os
 import sys
 
 class SettingsManager(QWidget):
-    def __init__(self):
+    def __init__(self, table_viewer=None):
         super().__init__()
+        self.table_viewer = table_viewer
         self.setWindowTitle('设置管理')
-        self.setFixedSize(400, 200)
+        self.setFixedSize(400, 250)  # 增加高度以容纳新按钮
         self.init_ui()
         self.load_current_settings()
 
@@ -39,6 +40,10 @@ class SettingsManager(QWidget):
         reset_btn = QPushButton('重置为默认值')
         reset_btn.clicked.connect(self.reset_to_default)
         
+        # 恢复默认列宽按钮
+        reset_column_width_btn = QPushButton('恢复默认列宽')
+        reset_column_width_btn.clicked.connect(self.reset_column_widths)
+        
         # 布局
         font_layout = QHBoxLayout()
         font_layout.addWidget(font_label)
@@ -53,10 +58,24 @@ class SettingsManager(QWidget):
         btn_layout.addWidget(save_btn)
         btn_layout.addWidget(reset_btn)
         
+        # 创建分割线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("color: gray;")
+        
+        # 单独一行放置恢复默认列宽按钮
+        column_width_layout = QHBoxLayout()
+        column_width_layout.addWidget(reset_column_width_btn)
+        
         layout.addLayout(font_layout)
         layout.addWidget(self.current_value_label)
         layout.addLayout(slider_layout)
         layout.addLayout(btn_layout)
+        layout.addSpacing(10)  # 分割线上方间距
+        layout.addWidget(separator)  # 添加分割线
+        layout.addSpacing(10)  # 分割线下方间距
+        layout.addLayout(column_width_layout)
         layout.addStretch()
         
         # 连接信号
@@ -131,6 +150,14 @@ class SettingsManager(QWidget):
         self.font_scale_edit.setText('1.2')
         self.font_scale_slider.setValue(120)
         self.update_current_value_label()
+    
+    def reset_column_widths(self):
+        """恢复默认列宽"""
+        if self.table_viewer:
+            self.table_viewer.reset_to_default_column_widths()
+            QMessageBox.information(self, '成功', '已恢复默认列宽设置！')
+        else:
+            QMessageBox.warning(self, '错误', '无法访问表格视图！')
 
 def show_settings_manager():
     """显示设置管理器"""

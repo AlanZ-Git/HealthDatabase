@@ -189,7 +189,7 @@ class VisitInputWidget(QWidget):
 
     def open_settings(self):
         """打开设置窗口"""
-        self.settings_window = SettingsManager()
+        self.settings_window = SettingsManager(table_viewer=self.table_viewer)
         self.settings_window.show()
 
     def open_visit_input_dialog(self):

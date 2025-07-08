@@ -6,6 +6,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from typing import List, Dict, Optional
 from .data_storage import DataStorage
+import configparser
+import os
 
 
 class TableViewer(QWidget):
@@ -19,6 +21,9 @@ class TableViewer(QWidget):
         self.data_storage = DataStorage()
         self.current_user = None
         self.records = []
+        self.default_column_widths = {}
+        self.current_column_widths = {}
+        self.load_column_width_settings()
         self.init_ui()
     
     def init_ui(self):
@@ -80,22 +85,12 @@ class TableViewer(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)  # 不可编辑
         self.table.verticalHeader().setVisible(False)  # 隐藏左侧行号
         
-        # 设置列宽
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # ID列固定宽度
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # 日期列固定宽度
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # 医院列自动拉伸
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # 科室列自动拉伸
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # 医生列自动拉伸
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # 器官系统列自动拉伸
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # 就诊原因列自动拉伸
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # 诊断列自动拉伸
-        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)  # 用药列自动拉伸
-        header.setSectionResizeMode(9, QHeaderView.ResizeMode.Stretch)  # 备注列自动拉伸
+        # 应用列宽设置
+        self.apply_column_widths()
         
-        # 设置固定列的宽度
-        self.table.setColumnWidth(0, 60)   # ID列
-        self.table.setColumnWidth(1, 100)  # 日期列
+        # 连接列宽变化信号
+        header = self.table.horizontalHeader()
+        header.sectionResized.connect(self.on_column_width_changed)
     
     def set_user(self, user_name: str):
         """设置当前用户并加载数据"""
@@ -162,3 +157,119 @@ class TableViewer(QWidget):
     def export_data(self):
         """导出数据（预留功能）"""
         QMessageBox.information(self, "提示", "导出功能正在开发中...") 
+    
+    def load_column_width_settings(self):
+        """加载列宽设置"""
+        # 加载默认设置
+        self.default_column_widths = self.load_default_column_widths()
+        
+        # 加载用户自定义设置（如果存在）
+        self.current_column_widths = self.load_user_column_widths()
+        
+        # 如果没有用户自定义设置，使用默认设置
+        if not self.current_column_widths:
+            self.current_column_widths = self.default_column_widths.copy()
+    
+    def load_default_column_widths(self):
+        """从settings.ini加载默认列宽设置"""
+        config = configparser.ConfigParser()
+        settings_file = 'settings.ini'
+        default_widths = {}
+        
+        if os.path.exists(settings_file):
+            config.read(settings_file, encoding='utf-8')
+            if config.has_section('ColumnWidths'):
+                for i in range(10):  # 10列
+                    key = f'column_{i}'
+                    if config.has_option('ColumnWidths', key):
+                        try:
+                            default_widths[i] = int(config.get('ColumnWidths', key))
+                        except ValueError:
+                            pass
+        
+        # 如果没有找到设置，使用硬编码的默认值
+        if not default_widths:
+            default_widths = {
+                0: 60, 1: 100, 2: 120, 3: 100, 4: 80,
+                5: 100, 6: 150, 7: 150, 8: 120, 9: 100
+            }
+        
+        return default_widths
+    
+    def load_user_column_widths(self):
+        """从history.ini加载用户自定义列宽设置"""
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        user_widths = {}
+        
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+            if config.has_section('ColumnWidths'):
+                for i in range(10):  # 10列
+                    key = f'column_{i}'
+                    if config.has_option('ColumnWidths', key):
+                        try:
+                            user_widths[i] = int(config.get('ColumnWidths', key))
+                        except ValueError:
+                            pass
+        
+        return user_widths
+    
+    def save_user_column_widths(self):
+        """保存用户自定义列宽设置到history.ini"""
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        
+        # 读取现有的history.ini内容
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+        
+        # 确保ColumnWidths节存在
+        if not config.has_section('ColumnWidths'):
+            config.add_section('ColumnWidths')
+        
+        # 保存当前列宽
+        for i in range(10):
+            width = self.table.columnWidth(i)
+            config.set('ColumnWidths', f'column_{i}', str(width))
+        
+        # 写入文件
+        with open(history_file, 'w', encoding='utf-8') as f:
+            config.write(f)
+    
+    def reset_to_default_column_widths(self):
+        """重置列宽为默认设置"""
+        # 删除history.ini中的列宽设置
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+            if config.has_section('ColumnWidths'):
+                config.remove_section('ColumnWidths')
+                with open(history_file, 'w', encoding='utf-8') as f:
+                    config.write(f)
+        
+        # 重新加载设置
+        self.load_column_width_settings()
+        
+        # 应用默认列宽
+        self.apply_column_widths()
+    
+    def apply_column_widths(self):
+        """应用列宽设置到表格"""
+        if not self.current_column_widths:
+            return
+        
+        header = self.table.horizontalHeader()
+        
+        # 设置所有列为可拖拽调整
+        for i in range(10):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+            if i in self.current_column_widths:
+                self.table.setColumnWidth(i, self.current_column_widths[i])
+    
+    def on_column_width_changed(self, logical_index, old_size, new_size):
+        """列宽改变时的处理函数"""
+        # 保存新的列宽到history.ini
+        self.save_user_column_widths()
