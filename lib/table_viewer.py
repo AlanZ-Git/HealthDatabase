@@ -85,6 +85,33 @@ class TableViewer(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)  # 不可编辑
         self.table.verticalHeader().setVisible(False)  # 隐藏左侧行号
         
+        # 设置工具提示样式
+        # 获取当前字体大小并乘以1.3倍
+        current_font = self.table.font()
+        tooltip_font_size = int(current_font.pointSize() * 1.3)
+        
+        # 设置工具提示样式：背景色RGB(244, 236, 145)，字体大小增加
+        tooltip_style = f"""
+        QToolTip {{
+            background-color: rgb(244, 236, 145);
+            color: black;
+            border: 1px solid #999;
+            padding: 5px;
+            font-size: {tooltip_font_size}pt;
+            border-radius: 3px;
+        }}
+        """
+        self.table.setStyleSheet(tooltip_style)
+        
+        # 设置平滑滚动 - 优化横向拖动条移动
+        h_scrollbar = self.table.horizontalScrollBar()
+        h_scrollbar.setSingleStep(1)  # 设置单步滚动像素数，越小越平滑
+        h_scrollbar.setPageStep(10)   # 设置页滚动像素数
+        
+        v_scrollbar = self.table.verticalScrollBar()
+        v_scrollbar.setSingleStep(1)  # 设置垂直滚动单步为1行
+        v_scrollbar.setPageStep(10)   # 设置垂直滚动页步为10行
+        
         # 应用列宽设置
         self.apply_column_widths()
         
@@ -125,16 +152,25 @@ class TableViewer(QWidget):
         
         for row, record in enumerate(self.records):
             # 按列顺序填充数据
-            self.table.setItem(row, 0, QTableWidgetItem(str(record.get('visit_record_id', ''))))
-            self.table.setItem(row, 1, QTableWidgetItem(str(record.get('date', ''))))
-            self.table.setItem(row, 2, QTableWidgetItem(str(record.get('hospital', ''))))
-            self.table.setItem(row, 3, QTableWidgetItem(str(record.get('department', ''))))
-            self.table.setItem(row, 4, QTableWidgetItem(str(record.get('doctor', ''))))
-            self.table.setItem(row, 5, QTableWidgetItem(str(record.get('organ_system', ''))))
-            self.table.setItem(row, 6, QTableWidgetItem(str(record.get('reason', ''))))
-            self.table.setItem(row, 7, QTableWidgetItem(str(record.get('diagnosis', ''))))
-            self.table.setItem(row, 8, QTableWidgetItem(str(record.get('medication', ''))))
-            self.table.setItem(row, 9, QTableWidgetItem(str(record.get('remark', ''))))
+            items_data = [
+                (str(record.get('visit_record_id', '')), 0),
+                (str(record.get('date', '')), 1),
+                (str(record.get('hospital', '')), 2),
+                (str(record.get('department', '')), 3),
+                (str(record.get('doctor', '')), 4),
+                (str(record.get('organ_system', '')), 5),
+                (str(record.get('reason', '')), 6),
+                (str(record.get('diagnosis', '')), 7),
+                (str(record.get('medication', '')), 8),
+                (str(record.get('remark', '')), 9)
+            ]
+            
+            for text, col in items_data:
+                item = QTableWidgetItem(text)
+                # 为每个单元格设置工具提示，显示完整内容
+                if text and text != 'None':
+                    item.setToolTip(text)
+                self.table.setItem(row, col, item)
             
             # 设置空值的显示
             for col in range(10):
@@ -142,6 +178,7 @@ class TableViewer(QWidget):
                 if item and (item.text() == 'None' or item.text() == ''):
                     item.setText('')
                     item.setForeground(Qt.GlobalColor.gray)
+                    item.setToolTip('')  # 空内容不显示提示
     
     def clear_table(self):
         """清空表格"""
