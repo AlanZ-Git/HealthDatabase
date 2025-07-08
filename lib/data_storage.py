@@ -386,3 +386,55 @@ class DataStorage:
             except Exception as e:
                 print(f"处理附件失败 {attachment_path}: {e}")
                 continue
+
+    def get_user_visit_records(self, user_name: str) -> List[Dict]:
+        """
+        获取用户的所有就诊记录
+        
+        Args:
+            user_name: 用户名
+            
+        Returns:
+            就诊记录列表，每个记录为字典格式
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return []
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # 查询所有就诊记录，按创建时间倒序排列
+            cursor.execute('''
+                SELECT visit_record_id, date, hospital, department, doctor, 
+                       organ_system, reason, diagnosis, medication, remark,
+                       created_at, updated_at
+                FROM visit_records 
+                ORDER BY created_at DESC
+            ''')
+            
+            records = []
+            for row in cursor.fetchall():
+                record = {
+                    'visit_record_id': row[0],
+                    'date': row[1],
+                    'hospital': row[2],
+                    'department': row[3],
+                    'doctor': row[4],
+                    'organ_system': row[5],
+                    'reason': row[6],
+                    'diagnosis': row[7],
+                    'medication': row[8],
+                    'remark': row[9],
+                    'created_at': row[10],
+                    'updated_at': row[11]
+                }
+                records.append(record)
+            
+            conn.close()
+            return records
+            
+        except Exception as e:
+            print(f"查询用户就诊记录失败: {e}")
+            return []

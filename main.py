@@ -13,6 +13,7 @@ import os
 from lib.data_storage import DataStorage
 from lib.settings_manager import SettingsManager
 from lib.visit_record_dialog import VisitRecordDialog
+from lib.table_viewer import TableViewer
 
 def load_settings():
     """加载设置文件"""
@@ -102,29 +103,23 @@ class VisitInputWidget(QWidget):
         user_grid.setColumnStretch(6, 1)  # 中间区域拉伸
         user_grid.addWidget(self.settings_btn, 0, 7)  # 设置按钮单独放在最右端
 
-        # 顶部Tab
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self._create_export_tab(), '就诊情况导出标签页')
+        # 表格查看区域（直接嵌入，不使用Tab）
+        self.table_viewer = TableViewer()
+        # 如果已经选择了用户，立即设置
+        current_user = self.user_combo.currentText()
+        if current_user and current_user != '请选择用户...':
+            self.table_viewer.set_user(current_user)
 
         main_layout = QVBoxLayout()
         main_layout.addLayout(user_grid)  # 用户选择在最上方
         main_layout.addSpacing(10)  # 添加一些间距
-        main_layout.addWidget(self.tabs)  # Tab控件在下方
+        main_layout.addWidget(self.table_viewer)  # 表格查看器在下方
         self.setLayout(main_layout)
         self.resize(1200, 700)
 
 
 
-    def _create_export_tab(self):
-        # 伪代码+注释占位
-        tab = QWidget()
-        layout = QVBoxLayout()
-        label = QLabel('此处为"就诊情况导出"功能区，待后续实现...')
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(label)
-        # TODO: 这里将来实现导出相关功能
-        tab.setLayout(layout)
-        return tab
+
 
 
 
@@ -213,7 +208,9 @@ class VisitInputWidget(QWidget):
     
     def on_record_uploaded(self):
         """当记录上传成功时的回调"""
-        # 这里可以添加一些响应逻辑，比如刷新某些数据
+        # 刷新表格查看器的数据
+        if hasattr(self, 'table_viewer'):
+            self.table_viewer.load_data()
         print("记录上传成功，主窗口收到通知")
 
 
@@ -232,6 +229,10 @@ class VisitInputWidget(QWidget):
             config['History']['last_user'] = current_user
             with open(history_file, 'w', encoding='utf-8') as f:
                 config.write(f)
+        
+        # 更新表格查看器的用户
+        if hasattr(self, 'table_viewer'):
+            self.table_viewer.set_user(current_user)
 
 
 
