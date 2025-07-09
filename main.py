@@ -169,13 +169,21 @@ class VisitInputWidget(QWidget):
             QMessageBox.information(self, '提示', '没有可删除的用户！')
             return
         
+        # 获取当前选中的用户，确定默认选择的索引
+        current_user = self.user_combo.currentText()
+        default_index = 0  # 默认选择第一个
+        
+        # 如果当前用户不是"请选择用户..."，则在用户列表中查找该用户的索引
+        if current_user != '请选择用户...' and current_user in users:
+            default_index = users.index(current_user)
+        
         # 弹窗让用户选择要删除的用户
         user_name, ok = QInputDialog.getItem(
             self, 
             '选择要删除的用户', 
             '请选择要删除的用户:',
             users,
-            0,  # 默认选择第一个
+            default_index,  # 默认选择当前用户
             False  # 不允许编辑
         )
         
