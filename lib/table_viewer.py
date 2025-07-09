@@ -616,20 +616,31 @@ class TableViewer(QWidget):
         config = configparser.ConfigParser()
         history_file = 'history.ini'
         
+        # 首先尝试从 history.ini 加载用户设置
         if os.path.exists(history_file):
             config.read(history_file, encoding='utf-8')
             if config.has_section('Pagination'):
                 if config.has_option('Pagination', 'records_per_page'):
                     try:
                         self.records_per_page = int(config.get('Pagination', 'records_per_page'))
+                        return  # 成功加载用户设置，直接返回
                     except ValueError:
-                        self.records_per_page = 15
-                else:
-                    self.records_per_page = 15
-            else:
-                self.records_per_page = 15
-        else:
-            self.records_per_page = 15
+                        pass
+        
+        # 如果 history.ini 没有设置，则从 settings.ini 加载默认设置
+        settings_file = 'settings.ini'
+        if os.path.exists(settings_file):
+            config.read(settings_file, encoding='utf-8')
+            if config.has_section('Pagination'):
+                if config.has_option('Pagination', 'records_per_page'):
+                    try:
+                        self.records_per_page = int(config.get('Pagination', 'records_per_page'))
+                        return  # 成功加载默认设置，直接返回
+                    except ValueError:
+                        pass
+        
+        # 如果都没有找到设置，使用硬编码默认值
+        self.records_per_page = 15
     
     def save_pagination_settings(self):
         """保存分页设置"""

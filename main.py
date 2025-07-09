@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QMessageBox, QInputDialog, QFrame
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from lib.data_storage import DataStorage
 from lib.table_viewer import TableViewer
 from lib.visit_record_dialog import VisitRecordDialog
@@ -98,22 +99,36 @@ class VisitInputWidget(QWidget):
                     self.on_user_changed()
 
     def load_window_size(self):
-        """从history.ini加载窗口大小设置"""
+        """加载窗口大小设置"""
         config = configparser.ConfigParser()
         history_file = 'history.ini'
         
+        # 首先尝试从 history.ini 加载用户设置
         if os.path.exists(history_file):
             config.read(history_file, encoding='utf-8')
             if config.has_section('Window'):
                 try:
-                    width = config.getint('Window', 'width', fallback=1200)
-                    height = config.getint('Window', 'height', fallback=800)
+                    width = config.getint('Window', 'width')
+                    height = config.getint('Window', 'height')
                     self.resize(width, height)
-                    return
+                    return  # 成功加载用户设置，直接返回
                 except:
                     pass
         
-        # 如果没有保存的大小设置，使用默认大小
+        # 如果 history.ini 没有设置，则从 settings.ini 加载默认设置
+        settings_file = 'settings.ini'
+        if os.path.exists(settings_file):
+            config.read(settings_file, encoding='utf-8')
+            if config.has_section('Window'):
+                try:
+                    width = config.getint('Window', 'width')
+                    height = config.getint('Window', 'height')
+                    self.resize(width, height)
+                    return  # 成功加载默认设置，直接返回
+                except:
+                    pass
+        
+        # 如果都没有找到设置，使用硬编码默认大小
         self.resize(1200, 800)
 
     def save_window_size(self):
@@ -254,9 +269,8 @@ class VisitInputWidget(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    
-    # 设置应用程序图标（如果有的话）
-    # app.setWindowIcon(QIcon('icon.png'))
+
+    app.setWindowIcon(QIcon('icon.png'))
     
     widget = VisitInputWidget()
     widget.show()
