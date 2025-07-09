@@ -405,13 +405,13 @@ class DataStorage:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # 查询所有就诊记录，按创建时间倒序排列
+            # 查询所有就诊记录，按就诊记录ID升序排列
             cursor.execute('''
                 SELECT visit_record_id, date, hospital, department, doctor, 
                        organ_system, reason, diagnosis, medication, remark,
                        created_at, updated_at
                 FROM visit_records 
-                ORDER BY created_at DESC
+                ORDER BY visit_record_id ASC
             ''')
             
             records = []
