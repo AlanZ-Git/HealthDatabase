@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from typing import List, Dict, Optional
 from .data_storage import DataStorage
+from .attachment_dialog import AttachmentDialog
 import configparser
 import os
 
@@ -134,10 +135,10 @@ class TableViewer(QWidget):
     
     def init_table(self):
         """初始化表格"""
-        # 定义列标题（添加勾选框列）
+        # 定义列标题（添加勾选框列和附件列）
         self.headers = [
             "选择", "记录ID", "就诊日期", "医院", "科室", "医生", 
-            "器官系统", "症状事由", "诊断结果", "用药信息", "备注"
+            "器官系统", "症状事由", "诊断结果", "用药信息", "备注", "附件"
         ]
         
         self.table.setColumnCount(len(self.headers))
@@ -183,9 +184,13 @@ class TableViewer(QWidget):
         header = self.table.horizontalHeader()
         header.sectionResized.connect(self.on_column_width_changed)
         
-        # 为勾选框列设置固定宽度
+        # 为勾选框列和附件列设置固定宽度
         self.table.setColumnWidth(0, 50)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        
+        # 为附件列设置固定宽度
+        self.table.setColumnWidth(11, 80)
+        header.setSectionResizeMode(11, QHeaderView.ResizeMode.Fixed)
         
         # 连接双击信号
         self.table.doubleClicked.connect(self.on_table_double_clicked)
@@ -288,8 +293,27 @@ class TableViewer(QWidget):
                     item.setToolTip(text)
                 self.table.setItem(row, col, item)
             
+            # 最后一列：附件按钮
+            visit_record_id = record.get('visit_record_id')
+            
+            # 检查是否有附件，设置按钮文字
+            has_attachments = False
+            if visit_record_id is not None and self.current_user:
+                attachments = self.data_storage.get_visit_attachments(self.current_user, int(visit_record_id))
+                has_attachments = len(attachments) > 0
+            
+            # 根据是否有附件设置按钮文字
+            btn_text = "附件" if has_attachments else "无附件"
+            attachment_btn = QPushButton(btn_text)
+            attachment_btn.setStyleSheet("QPushButton { margin: 2px; }")
+            
+            # 将visit_record_id存储在按钮中，用于点击时识别，点击逻辑不变
+            if visit_record_id is not None:
+                attachment_btn.clicked.connect(lambda checked, vid=int(visit_record_id): self.on_attachment_btn_clicked(vid))
+            self.table.setCellWidget(row, 11, attachment_btn)
+            
             # 设置空值的显示
-            for col in range(1, 11):  # 从第二列开始，因为第一列是勾选框
+            for col in range(1, 11):  # 从第二列开始到第十一列，因为第一列是勾选框，最后一列是附件按钮
                 item = self.table.item(row, col)
                 if item and (item.text() == 'None' or item.text() == ''):
                     item.setText('')
@@ -315,7 +339,6 @@ class TableViewer(QWidget):
     def refresh_data(self):
         """刷新数据"""
         self.load_data()
-        QMessageBox.information(self, "提示", "数据刷新完成")
     
     def export_data(self):
         """导出数据（预留功能）"""
@@ -342,7 +365,7 @@ class TableViewer(QWidget):
         if os.path.exists(settings_file):
             config.read(settings_file, encoding='utf-8')
             if config.has_section('ColumnWidths'):
-                for i in range(11):  # 11列（包括勾选框列）
+                for i in range(12):  # 12列（包括勾选框列和附件列）
                     key = f'column_{i}'
                     if config.has_option('ColumnWidths', key):
                         try:
@@ -354,7 +377,7 @@ class TableViewer(QWidget):
         if not default_widths:
             default_widths = {
                 0: 50, 1: 60, 2: 100, 3: 120, 4: 100, 5: 80,
-                6: 100, 7: 150, 8: 150, 9: 120, 10: 100
+                6: 100, 7: 150, 8: 150, 9: 120, 10: 100, 11: 80
             }
         
         return default_widths
@@ -368,7 +391,7 @@ class TableViewer(QWidget):
         if os.path.exists(history_file):
             config.read(history_file, encoding='utf-8')
             if config.has_section('ColumnWidths'):
-                for i in range(11):  # 11列（包括勾选框列）
+                for i in range(12):  # 12列（包括勾选框列和附件列）
                     key = f'column_{i}'
                     if config.has_option('ColumnWidths', key):
                         try:
@@ -392,7 +415,7 @@ class TableViewer(QWidget):
             config.add_section('ColumnWidths')
         
         # 保存当前列宽
-        for i in range(11):  # 11列（包括勾选框列）
+        for i in range(12):  # 12列（包括勾选框列和附件列）
             width = self.table.columnWidth(i)
             config.set('ColumnWidths', f'column_{i}', str(width))
         
@@ -426,11 +449,14 @@ class TableViewer(QWidget):
         
         header = self.table.horizontalHeader()
         
-        # 设置除勾选框列外的所有列为可拖拽调整
-        for i in range(11):  # 11列（包括勾选框列）
+        # 设置除勾选框列和附件列外的所有列为可拖拽调整
+        for i in range(12):  # 12列（包括勾选框列和附件列）
             if i == 0:  # 勾选框列固定宽度
                 header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
                 self.table.setColumnWidth(i, 50)
+            elif i == 11:  # 附件列固定宽度
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(i, 80)
             else:
                 header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
                 if i in self.current_column_widths:
@@ -624,3 +650,14 @@ class TableViewer(QWidget):
         # 写入文件
         with open(history_file, 'w', encoding='utf-8') as f:
             config.write(f)
+
+    def on_attachment_btn_clicked(self, visit_record_id: int):
+        """附件按钮点击事件处理"""
+        if not self.current_user:
+            QMessageBox.warning(self, "错误", "请先选择用户")
+            return
+        
+        # 打开附件管理对话框
+        dialog = AttachmentDialog(self.current_user, visit_record_id, self)
+        dialog.attachments_changed.connect(self.refresh_data)  # 连接信号，当附件变化时刷新数据
+        dialog.exec()

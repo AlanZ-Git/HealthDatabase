@@ -4,10 +4,11 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QCheckBox, QDateEdit, QCompleter, QMessageBox
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent
 import os
 
 from .data_storage import DataStorage
+from .attachment_dialog import AttachmentDialog
 
 class VisitRecordDialog(QDialog):
     """就诊信息录入弹窗"""
@@ -33,6 +34,10 @@ class VisitRecordDialog(QDialog):
             self.setWindowTitle('就诊信息')
         
         self.setModal(True)  # 设置为模态对话框
+        
+        # 启用拖拽功能
+        self.setAcceptDrops(True)
+        
         self.init_ui()
         
         # 如果是编辑模式，预填数据
@@ -46,6 +51,65 @@ class VisitRecordDialog(QDialog):
         self.connect_change_signals()
         
         self.resize(1000, 600)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """拖拽进入事件"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent):
+        """拖拽放下事件"""
+        if event.mimeData().hasUrls():
+            file_paths = []
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if os.path.isfile(file_path):
+                    file_paths.append(file_path)
+            
+            if file_paths:
+                if self.is_edit_mode:
+                    # 编辑模式：弹窗询问是否导入附件
+                    reply = QMessageBox.question(
+                        self,
+                        '确认导入',
+                        f'是否将{len(file_paths)}个文件导入附件？',
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes
+                    )
+                    
+                    if reply == QMessageBox.StandardButton.Yes:
+                        visit_record_id = self.edit_record.get('visit_record_id')
+                        if visit_record_id:
+                            success_count = 0
+                            for file_path in file_paths:
+                                if self.data_storage.add_attachment_to_visit(self.user_name, visit_record_id, file_path):
+                                    success_count += 1
+                            
+                            if success_count > 0:
+                                self.load_edit_mode_attachments()  # 重新加载列表
+                            else:
+                                QMessageBox.warning(self, "失败", "附件添加失败")
+                        else:
+                            QMessageBox.warning(self, "错误", "无法获取就诊记录ID")
+                else:
+                    # 新增模式：直接将路径写入附件展示区
+                    for file_path in file_paths:
+                        item = QListWidgetItem()
+                        checkbox = QCheckBox()
+                        checkbox.setChecked(False)
+                        self.attachment_list.addItem(item)
+                        self.attachment_list.setItemWidget(item, checkbox)
+                        item.setData(Qt.ItemDataRole.UserRole, file_path)
+                        checkbox.setText(file_path)
+                    self._update_placeholder()
+                    # 标记有未保存的变化
+                    self.on_data_changed()
+            
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def init_ui(self):
         """初始化UI"""
@@ -168,26 +232,44 @@ class VisitRecordDialog(QDialog):
         line2.setFrameShadow(QFrame.Shadow.Sunken)
 
         # 附件按钮区（横向）
-        self.add_attachment_btn = QPushButton('添加附件按钮')
-        self.remove_attachment_btn = QPushButton('移除附件按钮')
-        self.remove_all_attachment_btn = QPushButton('移除所有附件按钮')
+        attach_btn_h = QHBoxLayout()
         
-        # 根据模式设置按钮文本
         if self.is_edit_mode:
+            # 编辑模式下直接使用3个附件管理按钮
+            self.add_attachment_btn = QPushButton('添加附件')
+            self.remove_attachment_btn = QPushButton('删除选中')
+            self.view_attachment_btn = QPushButton('查看附件')
+            
+            self.add_attachment_btn.clicked.connect(self.add_edit_attachment)
+            self.remove_attachment_btn.clicked.connect(self.remove_edit_attachment)
+            self.view_attachment_btn.clicked.connect(self.view_edit_attachment)
+            
+            attach_btn_h.addWidget(self.add_attachment_btn)
+            attach_btn_h.addWidget(self.remove_attachment_btn)
+            attach_btn_h.addWidget(self.view_attachment_btn)
+            attach_btn_h.addStretch()
+            
+            # 根据模式设置按钮文本
             self.upload_btn = QPushButton('保存修改')
         else:
+            # 新增模式下使用原有的附件按钮
+            self.add_attachment_btn = QPushButton('添加附件按钮')
+            self.remove_attachment_btn = QPushButton('移除附件按钮')
+            self.remove_all_attachment_btn = QPushButton('移除所有附件按钮')
+            
+            self.add_attachment_btn.clicked.connect(self.add_attachment)
+            self.remove_attachment_btn.clicked.connect(self.remove_attachment)
+            self.remove_all_attachment_btn.clicked.connect(self.remove_all_attachment)
+            
+            attach_btn_h.addWidget(self.add_attachment_btn)
+            attach_btn_h.addWidget(self.remove_attachment_btn)
+            attach_btn_h.addWidget(self.remove_all_attachment_btn)
+            attach_btn_h.addStretch()
+            
+            # 根据模式设置按钮文本
             self.upload_btn = QPushButton('上传本次记录按钮')
         
         self.upload_btn.clicked.connect(self.upload_visit_record)
-        self.add_attachment_btn.clicked.connect(self.add_attachment)
-        self.remove_attachment_btn.clicked.connect(self.remove_attachment)
-        self.remove_all_attachment_btn.clicked.connect(self.remove_all_attachment)
-        
-        attach_btn_h = QHBoxLayout()
-        attach_btn_h.addWidget(self.add_attachment_btn)
-        attach_btn_h.addWidget(self.remove_attachment_btn)
-        attach_btn_h.addWidget(self.remove_all_attachment_btn)
-        attach_btn_h.addStretch()
         attach_btn_h.addWidget(self.upload_btn)
 
         # 附件展示区
@@ -208,8 +290,17 @@ class VisitRecordDialog(QDialog):
                 color: #ffffff;
             }
         """)
-        self.attachment_list.itemChanged.connect(self._update_placeholder)
-        self._update_placeholder()
+        
+        if not self.is_edit_mode:
+            # 只有在新增模式下才连接信号和更新占位符
+            self.attachment_list.itemChanged.connect(self._update_placeholder)
+            self._update_placeholder()
+        else:
+            # 编辑模式下支持选择但禁用编辑
+            self.attachment_list.setEditTriggers(QListWidget.EditTrigger.NoEditTriggers)
+            self.attachment_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+            # 连接双击事件
+            self.attachment_list.doubleClicked.connect(self.on_attachment_double_clicked)
 
         attach_v = QVBoxLayout()
         attach_v.addWidget(QLabel('附件'))
@@ -286,6 +377,195 @@ class VisitRecordDialog(QDialog):
         """移除所有附件"""
         self.attachment_list.clear()
         self._update_placeholder()
+    
+    def add_edit_attachment(self):
+        """编辑模式下添加附件"""
+        if not self.is_edit_mode or not self.edit_record:
+            return
+            
+        visit_record_id = self.edit_record.get('visit_record_id')
+        if not visit_record_id:
+            QMessageBox.warning(self, "错误", "无法获取就诊记录ID")
+            return
+        
+        file_dialog = QFileDialog()
+        file_paths, _ = file_dialog.getOpenFileNames(self, '选择附件')
+        
+        if file_paths:
+            success_count = 0
+            for file_path in file_paths:
+                if self.data_storage.add_attachment_to_visit(self.user_name, visit_record_id, file_path):
+                    success_count += 1
+            
+            if success_count > 0:
+                self.load_edit_mode_attachments()  # 重新加载列表
+            else:
+                QMessageBox.warning(self, "失败", "附件添加失败")
+    
+    def remove_edit_attachment(self):
+        """编辑模式下删除选中的附件"""
+        if not self.is_edit_mode or not self.edit_record:
+            return
+        
+        selected_items = self.attachment_list.selectedItems()
+        if not selected_items:
+            QMessageBox.information(self, "提示", "请先选择要删除的附件")
+            return
+        
+        selected_attachments = []
+        for item in selected_items:
+            attachment_data = item.data(Qt.ItemDataRole.UserRole)
+            if attachment_data:  # 确保不是占位符项目
+                selected_attachments.append(attachment_data)
+        
+        if not selected_attachments:
+            QMessageBox.information(self, "提示", "请选择有效的附件")
+            return
+        
+        # 确认删除
+        reply = QMessageBox.question(
+            self, 
+            '确认删除', 
+            f'确定要删除选中的 {len(selected_attachments)} 个附件吗？\n此操作不可撤销。',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            success_count = 0
+            for attachment in selected_attachments:
+                if self.data_storage.delete_attachment(self.user_name, attachment['attachment_id']):
+                    success_count += 1
+            
+            if success_count > 0:
+                self.load_edit_mode_attachments()  # 重新加载列表
+            else:
+                QMessageBox.warning(self, "失败", "附件删除失败")
+    
+    def view_edit_attachment(self):
+        """编辑模式下查看选中的附件"""
+        if not self.is_edit_mode or not self.edit_record:
+            return
+        
+        selected_items = self.attachment_list.selectedItems()
+        if not selected_items:
+            QMessageBox.information(self, "提示", "请先选择要查看的附件")
+            return
+        
+        # 查看第一个选中的附件
+        item = selected_items[0]
+        attachment_data = item.data(Qt.ItemDataRole.UserRole)
+        if not attachment_data:
+            QMessageBox.information(self, "提示", "请选择有效的附件")
+            return
+        
+        self.open_file(attachment_data)
+    
+    def on_attachment_double_clicked(self, index):
+        """双击附件时的处理"""
+        if not self.is_edit_mode:
+            return
+            
+        item = self.attachment_list.itemFromIndex(index)
+        if not item:
+            return
+        
+        attachment_data = item.data(Qt.ItemDataRole.UserRole)
+        if not attachment_data:
+            return
+        
+        self.open_file(attachment_data)
+    
+    def replace_edit_attachment(self, attachment_data: dict):
+        """替换现有附件"""
+        file_dialog = QFileDialog()
+        file_paths, _ = file_dialog.getOpenFileNames(self, '选择新的附件文件')
+        
+        if file_paths:
+            # 只取第一个文件来替换
+            new_file_path = file_paths[0]
+            attachment_id = attachment_data['attachment_id']
+            
+            # 更新附件记录的路径
+            if self.data_storage.update_attachment_path(self.user_name, attachment_id, new_file_path):
+                self.load_edit_mode_attachments()  # 重新加载列表
+            else:
+                QMessageBox.warning(self, "失败", "更新附件路径失败")
+    
+    def open_file(self, attachment_data: dict):
+        """打开文件"""
+        file_path = attachment_data['file_path']
+        
+        if not os.path.exists(file_path):
+            # 文件不存在时，弹出包含三个选项的对话框
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("文件不存在")
+            msg_box.setText(f"文件不存在：{file_path}")
+            msg_box.setInformativeText("请选择要执行的操作：")
+            
+            # 添加自定义按钮
+            delete_btn = msg_box.addButton("删除记录", QMessageBox.ButtonRole.ActionRole)
+            add_btn = msg_box.addButton("添加附件", QMessageBox.ButtonRole.ActionRole)  
+            ignore_btn = msg_box.addButton("忽略", QMessageBox.ButtonRole.RejectRole)
+            
+            msg_box.setDefaultButton(ignore_btn)
+            msg_box.exec()
+            
+            # 根据用户选择执行相应操作
+            if msg_box.clickedButton() == delete_btn:
+                # 删除附件记录
+                if self.data_storage.delete_attachment(self.user_name, attachment_data['attachment_id']):
+                    self.load_edit_mode_attachments()  # 重新加载列表
+                else:
+                    QMessageBox.warning(self, "失败", "删除附件记录失败")
+            elif msg_box.clickedButton() == add_btn:
+                # 替换现有附件
+                self.replace_edit_attachment(attachment_data)
+            # 如果是忽略，则什么都不做
+            return
+        
+        try:
+            import subprocess
+            import platform
+            
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(file_path)
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", file_path])
+            else:  # Linux
+                subprocess.run(["xdg-open", file_path])
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"无法打开文件：{str(e)}")
+    
+    def load_edit_mode_attachments(self):
+        """加载编辑模式下的附件信息"""
+        if not self.is_edit_mode or not self.edit_record:
+            return
+            
+        visit_record_id = self.edit_record.get('visit_record_id')
+        if not visit_record_id:
+            return
+        
+        # 清空现有列表
+        self.attachment_list.clear()
+        
+        # 从数据库获取附件信息
+        attachments = self.data_storage.get_visit_attachments(self.user_name, visit_record_id)
+        
+        if not attachments:
+            # 显示无附件提示
+            placeholder_item = QListWidgetItem("当前就诊记录暂无附件")
+            placeholder_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            placeholder_item.setForeground(Qt.GlobalColor.gray)
+            self.attachment_list.addItem(placeholder_item)
+        else:
+            # 显示附件信息（可选择）
+            for attachment in attachments:
+                item = QListWidgetItem(f"📎 {attachment['file_name']}")
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                item.setData(Qt.ItemDataRole.UserRole, attachment)
+                self.attachment_list.addItem(item)
 
     def clear_form(self):
         """清空表单"""
@@ -379,7 +659,10 @@ class VisitRecordDialog(QDialog):
         self.diagnosis_edit.textChanged.connect(self.on_data_changed)
         self.medication_edit.textChanged.connect(self.on_data_changed)
         self.remark_edit.textChanged.connect(self.on_data_changed)
-        self.attachment_list.itemChanged.connect(self.on_data_changed)
+        
+        # 只在新增模式下连接附件列表的信号
+        if not self.is_edit_mode:
+            self.attachment_list.itemChanged.connect(self.on_data_changed)
 
     def on_data_changed(self):
         """数据改变时的处理函数"""
@@ -499,13 +782,14 @@ class VisitRecordDialog(QDialog):
         Returns:
             包含所有表单数据的字典，字段对应数据库表结构
         """
-        # 获取所有附件文件路径
+        # 获取所有附件文件路径（仅在新增模式下从attachment_list收集）
         attachment_paths = []
-        for i in range(self.attachment_list.count()):
-            item = self.attachment_list.item(i)
-            file_path = item.data(Qt.ItemDataRole.UserRole)
-            if file_path:
-                attachment_paths.append(file_path)
+        if not self.is_edit_mode:
+            for i in range(self.attachment_list.count()):
+                item = self.attachment_list.item(i)
+                file_path = item.data(Qt.ItemDataRole.UserRole)
+                if file_path:
+                    attachment_paths.append(file_path)
         
         # 整理数据成数据库字段格式
         visit_data = {
@@ -519,8 +803,11 @@ class VisitRecordDialog(QDialog):
             'diagnosis': self.diagnosis_edit.toPlainText().strip(),
             'medication': self.medication_edit.toPlainText().strip(),
             'remark': self.remark_edit.toPlainText().strip(),
-            'attachment_paths': attachment_paths
         }
+        
+        # 只在新增模式下添加附件路径
+        if not self.is_edit_mode:
+            visit_data['attachment_paths'] = attachment_paths
         
         return visit_data
 
@@ -568,4 +855,7 @@ class VisitRecordDialog(QDialog):
         if created_at:
             self.created_time_label.setText(f"创建时间：{created_at}")
         if updated_at:
-            self.updated_time_label.setText(f"更新时间：{updated_at}") 
+            self.updated_time_label.setText(f"更新时间：{updated_at}")
+        
+        # 加载附件信息
+        self.load_edit_mode_attachments() 

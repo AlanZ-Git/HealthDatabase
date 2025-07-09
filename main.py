@@ -1,56 +1,15 @@
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QLabel, QPushButton, 
-    QHBoxLayout, QVBoxLayout, QGridLayout, QFrame, QTabWidget,
-    QComboBox, QMessageBox, QInputDialog
-)
-
-from PyQt6.QtCore import Qt, QDate
-from PyQt6.QtGui import QFont
 import sys
-import configparser
 import os
-
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+    QPushButton, QMessageBox, QInputDialog, QFrame
+)
+from PyQt6.QtCore import Qt
 from lib.data_storage import DataStorage
-from lib.settings_manager import SettingsManager
-from lib.visit_record_dialog import VisitRecordDialog
 from lib.table_viewer import TableViewer
+from lib.visit_record_dialog import VisitRecordDialog
+from lib.settings_manager import SettingsManager
 
-def load_settings():
-    """加载设置文件"""
-    config = configparser.ConfigParser()
-    settings_file = 'settings.ini'
-    
-    # 如果设置文件不存在，创建默认设置
-    if not os.path.exists(settings_file):
-        config['Display'] = {'font_scale': '1.2'}
-        with open(settings_file, 'w', encoding='utf-8') as f:
-            config.write(f)
-    else:
-        config.read(settings_file, encoding='utf-8')
-    
-    # 获取字体缩放倍数，默认为1.2
-    try:
-        font_scale = float(config.get('Display', 'font_scale', fallback='1.2'))
-    except (ValueError, configparser.Error):
-        font_scale = 1.2
-    
-    return font_scale
-
-def apply_global_font_scale(app, font_scale):
-    """应用全局字体缩放"""
-    # 获取当前字体
-    current_font = app.font()
-    
-    # 计算新的字体大小
-    new_size = int(current_font.pointSize() * font_scale)
-    
-    # 创建新字体
-    new_font = QFont(current_font.family(), new_size)
-    new_font.setBold(current_font.bold())
-    new_font.setItalic(current_font.italic())
-    
-    # 应用新字体
-    app.setFont(new_font)
 
 class VisitInputWidget(QWidget):
     def __init__(self):
@@ -97,46 +56,60 @@ class VisitInputWidget(QWidget):
 
         # 表格查看区域（直接嵌入，不使用Tab）
         self.table_viewer = TableViewer()
-        # 连接table_viewer的信号到主界面的处理函数
+        # 连接信号，处理录入就诊信息的请求
         self.table_viewer.visit_input_requested.connect(self.open_visit_input_dialog)
         
-        # 如果已经选择了用户，立即设置
-        current_user = self.user_combo.currentText()
-        if current_user and current_user != '请选择用户...':
-            self.table_viewer.set_user(current_user)
-
+        # 主布局
         main_layout = QVBoxLayout()
-        main_layout.addLayout(user_layout)  # 用户选择在最上方
-        main_layout.addSpacing(10)  # 添加一些间距
-        main_layout.addWidget(self.table_viewer)  # 表格查看器在下方
+        main_layout.addLayout(user_layout)
+        main_layout.addWidget(self.table_viewer)
+        main_layout.setSpacing(10)
+        
         self.setLayout(main_layout)
-        self.resize(1200, 700)
 
     def load_users(self):
-        """读取data文件夹下的sqlite文件作为用户列表"""
-        # 清空现有项目（保留第一个"请选择用户..."）
+        """加载用户列表"""
+        users = self.data_storage.get_all_users()
+        # 清空现有选项（保留'请选择用户...'）
         while self.user_combo.count() > 1:
             self.user_combo.removeItem(1)
+        # 添加用户
+        for user in users:
+            self.user_combo.addItem(user)
+
+    def load_last_user(self):
+        """加载上次选择的用户"""
+        import configparser
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
         
-        # 使用data_storage获取所有用户
-        users = self.data_storage.get_all_users()
-        for user_name in users:
-            self.user_combo.addItem(user_name)
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+            if config.has_section('History') and config.has_option('History', 'last_user'):
+                last_user = config.get('History', 'last_user')
+                # 在下拉框中查找并选择该用户
+                index = self.user_combo.findText(last_user)
+                if index >= 0:
+                    self.user_combo.setCurrentIndex(index)
 
     def create_new_user(self):
         """创建新用户"""
         user_name, ok = QInputDialog.getText(self, '创建新用户', '请输入用户名:')
         if ok and user_name.strip():
             user_name = user_name.strip()
+            # 检查用户名是否已存在
+            existing_users = self.data_storage.get_all_users()
+            if user_name in existing_users:
+                QMessageBox.warning(self, '警告', f'用户名 "{user_name}" 已存在！')
+                return
             
             # 使用data_storage创建用户
             if self.data_storage.create_user(user_name):
-                # 添加到下拉框
                 self.user_combo.addItem(user_name)
                 self.user_combo.setCurrentText(user_name)
                 QMessageBox.information(self, '成功', f'用户 "{user_name}" 创建成功！')
             else:
-                QMessageBox.warning(self, '警告', '用户名已存在！')
+                QMessageBox.warning(self, '错误', f'创建用户 "{user_name}" 失败！')
 
     def delete_user(self):
         """删除用户"""
@@ -221,29 +194,18 @@ class VisitInputWidget(QWidget):
         if hasattr(self, 'table_viewer'):
             self.table_viewer.set_user(current_user)
 
-    def load_last_user(self):
-        import configparser
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        last_user = None
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-            last_user = config.get('History', 'last_user', fallback=None)
-        if last_user and self.user_combo.findText(last_user) != -1:
-            self.user_combo.setCurrentText(last_user)
-        elif self.user_combo.count() == 1:
-            self.user_combo.setCurrentText('请创建新用户')
 
-def show_ui():
+def main():
     app = QApplication(sys.argv)
     
-    # 加载设置并应用全局字体缩放
-    font_scale = load_settings()
-    apply_global_font_scale(app, font_scale)
+    # 设置应用程序图标（如果有的话）
+    # app.setWindowIcon(QIcon('icon.png'))
     
-    window = VisitInputWidget()
-    window.show()
+    widget = VisitInputWidget()
+    widget.show()
+    
     sys.exit(app.exec())
 
-if __name__ == "__main__":
-    show_ui()
+
+if __name__ == '__main__':
+    main()

@@ -567,3 +567,218 @@ class DataStorage:
         except Exception as e:
             print(f"更新就诊记录失败: {e}")
             return False
+
+    def get_visit_attachments(self, user_name: str, visit_record_id: int) -> List[Dict]:
+        """
+        获取指定就诊记录的附件列表
+        
+        Args:
+            user_name: 用户名
+            visit_record_id: 就诊记录ID
+            
+        Returns:
+            附件列表，每个附件为字典格式 {'attachment_id': int, 'file_path': str, 'file_name': str}
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return []
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT attachment_id, file_path
+                FROM attachment_records 
+                WHERE visit_record_id = ?
+                ORDER BY attachment_id ASC
+            ''', (visit_record_id,))
+            
+            attachments = []
+            for row in cursor.fetchall():
+                attachment_id, file_path = row
+                file_name = os.path.basename(file_path)
+                attachments.append({
+                    'attachment_id': attachment_id,
+                    'file_path': file_path,
+                    'file_name': file_name
+                })
+            
+            conn.close()
+            return attachments
+            
+        except Exception as e:
+            print(f"获取附件列表失败: {e}")
+            return []
+
+    def delete_attachment(self, user_name: str, attachment_id: int) -> bool:
+        """
+        删除指定的附件
+        
+        Args:
+            user_name: 用户名
+            attachment_id: 附件ID
+            
+        Returns:
+            是否删除成功
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return False
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # 先获取文件路径，用于删除物理文件
+            cursor.execute('SELECT file_path FROM attachment_records WHERE attachment_id = ?', 
+                         (attachment_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                file_path = result[0]
+                
+                # 删除数据库记录
+                cursor.execute('DELETE FROM attachment_records WHERE attachment_id = ?', 
+                             (attachment_id,))
+                
+                # 删除物理文件
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"成功删除附件文件: {file_path}")
+                    except Exception as e:
+                        print(f"删除附件文件失败: {e}")
+                
+                conn.commit()
+                conn.close()
+                return True
+            else:
+                conn.close()
+                return False
+                
+        except Exception as e:
+            print(f"删除附件失败: {e}")
+            return False
+
+    def add_attachment_to_visit(self, user_name: str, visit_record_id: int, attachment_path: str) -> bool:
+        """
+        为指定就诊记录添加单个附件
+        
+        Args:
+            user_name: 用户名
+            visit_record_id: 就诊记录ID
+            attachment_path: 附件文件路径
+            
+        Returns:
+            是否添加成功
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return False
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # 处理附件
+            self._process_attachments(cursor, visit_record_id, [attachment_path], user_name)
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            print(f"添加附件失败: {e}")
+            return False
+
+    def update_attachment_path(self, user_name: str, attachment_id: int, new_file_path: str) -> bool:
+        """
+        更新指定附件，用新文件替换原附件，保持原有命名规则
+        
+        Args:
+            user_name: 用户名
+            attachment_id: 附件ID
+            new_file_path: 新的源文件路径
+            
+        Returns:
+            是否更新成功
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return False
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # 先获取原附件记录，包括visit_record_id和当前文件路径
+            cursor.execute('''
+                SELECT visit_record_id, file_path 
+                FROM attachment_records 
+                WHERE attachment_id = ?
+            ''', (attachment_id,))
+            
+            result = cursor.fetchone()
+            if not result:
+                print(f"错误：未找到ID为 {attachment_id} 的附件记录")
+                conn.close()
+                return False
+            
+            visit_record_id, old_file_path = result
+            
+            # 获取新文件的基本信息
+            new_file_name = os.path.basename(new_file_path)
+            name, ext = os.path.splitext(new_file_name)
+            
+            # 确保Appendix目录和用户目录存在
+            appendix_dir = 'Appendix'
+            user_dir = os.path.join(appendix_dir, user_name)
+            if not os.path.exists(user_dir):
+                os.makedirs(user_dir, exist_ok=True)
+            
+            # 生成新的文件名，保持原有命名规则：{visit_record_id}_{attachment_id}_{name}
+            new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
+            
+            # 如果新文件名长度超过100个字符，截断name部分
+            if len(new_name) > 100:
+                max_name_length = 100 - len(str(visit_record_id)) - len(str(attachment_id)) - len(ext) - 2
+                if max_name_length > 0:
+                    name = name[:max_name_length]
+                    new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
+                else:
+                    # 如果连基本结构都放不下，使用最简单的命名
+                    new_name = f"{visit_record_id}_{attachment_id}{ext}"
+            
+            # 构建新的目标路径
+            target_path = os.path.join(user_dir, new_name)
+            
+            # 删除旧文件（如果存在）
+            if old_file_path and os.path.exists(old_file_path):
+                try:
+                    os.remove(old_file_path)
+                    print(f"成功删除旧附件文件: {old_file_path}")
+                except Exception as e:
+                    print(f"删除旧附件文件失败: {e}")
+            
+            # 复制新文件到目标位置
+            import shutil
+            shutil.copy2(new_file_path, target_path)
+            print(f"成功复制新附件: {new_file_name} -> {new_name}")
+            
+            # 更新数据库记录
+            cursor.execute('''
+                UPDATE attachment_records 
+                SET file_path = ? 
+                WHERE attachment_id = ?
+            ''', (target_path, attachment_id))
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"成功更新附件，附件ID: {attachment_id}, 新路径: {target_path}")
+            return True
+            
+        except Exception as e:
+            print(f"更新附件失败: {e}")
+            return False
