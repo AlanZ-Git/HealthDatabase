@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QLabel, QHeaderView, QMessageBox, QAbstractItemView, QCheckBox
+    QPushButton, QLabel, QHeaderView, QMessageBox, QAbstractItemView, QCheckBox,
+    QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -22,9 +23,14 @@ class TableViewer(QWidget):
         self.data_storage = DataStorage()
         self.current_user = None
         self.records = []
+        self.all_records = []  # 存储所有记录，用于分页
+        self.current_page = 1  # 当前页码
+        self.records_per_page = 15  # 每页记录数，默认15
+        self.total_pages = 1  # 总页数
         self.default_column_widths = {}
         self.current_column_widths = {}
         self.load_column_width_settings()
+        self.load_pagination_settings()
         self.init_ui()
     
     def init_ui(self):
@@ -69,6 +75,51 @@ class TableViewer(QWidget):
         
         # 底部操作栏
         self.button_layout = QHBoxLayout()
+        
+        # 分页控件（从左边开始）
+        # 每页记录数设置
+        self.page_size_label = QLabel("每页")
+        self.button_layout.addWidget(self.page_size_label)
+        
+        self.page_size_spinbox = QSpinBox()
+        self.page_size_spinbox.setMinimum(1)
+        self.page_size_spinbox.setMaximum(1000)
+        self.page_size_spinbox.setValue(self.records_per_page)
+        self.page_size_spinbox.valueChanged.connect(self.on_page_size_changed)
+        self.page_size_spinbox.setFixedWidth(60)
+        self.button_layout.addWidget(self.page_size_spinbox)
+        
+        self.page_size_label2 = QLabel("条记录")
+        self.button_layout.addWidget(self.page_size_label2)
+        
+        # 添加间距
+        self.button_layout.addSpacing(20)
+        
+        # 分页按钮
+        self.first_page_btn = QPushButton("首页")
+        self.first_page_btn.clicked.connect(self.go_to_first_page)
+        self.first_page_btn.setFixedWidth(60)
+        self.button_layout.addWidget(self.first_page_btn)
+        
+        self.prev_page_btn = QPushButton("上一页")
+        self.prev_page_btn.clicked.connect(self.go_to_prev_page)
+        self.prev_page_btn.setFixedWidth(70)
+        self.button_layout.addWidget(self.prev_page_btn)
+        
+        self.next_page_btn = QPushButton("下一页")
+        self.next_page_btn.clicked.connect(self.go_to_next_page)
+        self.next_page_btn.setFixedWidth(70)
+        self.button_layout.addWidget(self.next_page_btn)
+        
+        self.last_page_btn = QPushButton("末页")
+        self.last_page_btn.clicked.connect(self.go_to_last_page)
+        self.last_page_btn.setFixedWidth(60)
+        self.button_layout.addWidget(self.last_page_btn)
+        
+        # 页码信息
+        self.page_info_label = QLabel("第1页 / 共1页")
+        self.button_layout.addWidget(self.page_info_label)
+        
         self.button_layout.addStretch()
         
         # 导出按钮（预留）
@@ -163,13 +214,47 @@ class TableViewer(QWidget):
         
         try:
             # 获取用户的就诊记录
-            self.records = self.data_storage.get_user_visit_records(self.current_user)
-            self.populate_table()
-            self.record_count_label.setText(f"记录数量：{len(self.records)}")
+            self.all_records = self.data_storage.get_user_visit_records(self.current_user)
+            self.calculate_pagination()
+            self.update_page_display()
             
         except Exception as e:
             QMessageBox.warning(self, "错误", f"加载数据失败：{str(e)}")
             self.clear_table()
+    
+    def calculate_pagination(self):
+        """计算分页信息"""
+        if not self.all_records:
+            self.total_pages = 1
+            self.current_page = 1
+            self.records = []
+        else:
+            self.total_pages = max(1, (len(self.all_records) + self.records_per_page - 1) // self.records_per_page)
+            self.current_page = min(self.current_page, self.total_pages)
+            if self.current_page < 1:
+                self.current_page = 1
+            
+            # 计算当前页的记录
+            start_index = (self.current_page - 1) * self.records_per_page
+            end_index = start_index + self.records_per_page
+            self.records = self.all_records[start_index:end_index]
+    
+    def update_page_display(self):
+        """更新页面显示"""
+        self.populate_table()
+        self.record_count_label.setText(f"记录数量：{len(self.all_records)}")
+        
+        # 更新页码信息
+        if self.total_pages > 0:
+            self.page_info_label.setText(f"第{self.current_page}页 / 共{self.total_pages}页")
+        else:
+            self.page_info_label.setText("第1页 / 共1页")
+        
+        # 更新按钮状态
+        self.first_page_btn.setEnabled(self.current_page > 1)
+        self.prev_page_btn.setEnabled(self.current_page > 1)
+        self.next_page_btn.setEnabled(self.current_page < self.total_pages)
+        self.last_page_btn.setEnabled(self.current_page < self.total_pages)
     
     def populate_table(self):
         """填充表格数据"""
@@ -215,7 +300,17 @@ class TableViewer(QWidget):
         """清空表格"""
         self.table.setRowCount(0)
         self.records = []
+        self.all_records = []
+        self.current_page = 1
+        self.total_pages = 1
         self.record_count_label.setText("记录数量：0")
+        self.page_info_label.setText("第1页 / 共1页")
+        
+        # 更新按钮状态
+        self.first_page_btn.setEnabled(False)
+        self.prev_page_btn.setEnabled(False)
+        self.next_page_btn.setEnabled(False)
+        self.last_page_btn.setEnabled(False)
     
     def refresh_data(self):
         """刷新数据"""
@@ -376,6 +471,7 @@ class TableViewer(QWidget):
         if len(checked_rows) != 1:
             return None
         
+        # 在分页情况下，需要使用当前页显示的记录
         row = checked_rows[0]
         if 0 <= row < len(self.records):
             return self.records[row]
@@ -402,7 +498,7 @@ class TableViewer(QWidget):
             QMessageBox.warning(self, "错误", "请先选择用户")
             return
         
-        # 获取双击的行
+        # 获取双击的行（在分页情况下使用当前页的记录）
         row = index.row()
         if 0 <= row < len(self.records):
             record = self.records[row]
@@ -450,3 +546,81 @@ class TableViewer(QWidget):
         
         # 显示对话框
         dialog.exec()
+    
+    def on_page_size_changed(self, value):
+        """每页记录数改变事件"""
+        self.records_per_page = value
+        self.current_page = 1  # 重置到第一页
+        self.save_pagination_settings()
+        
+        if self.current_user:
+            self.calculate_pagination()
+            self.update_page_display()
+    
+    def go_to_first_page(self):
+        """跳转到首页"""
+        if self.current_page != 1:
+            self.current_page = 1
+            self.calculate_pagination()
+            self.update_page_display()
+    
+    def go_to_prev_page(self):
+        """跳转到上一页"""
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.calculate_pagination()
+            self.update_page_display()
+    
+    def go_to_next_page(self):
+        """跳转到下一页"""
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.calculate_pagination()
+            self.update_page_display()
+    
+    def go_to_last_page(self):
+        """跳转到末页"""
+        if self.current_page != self.total_pages:
+            self.current_page = self.total_pages
+            self.calculate_pagination()
+            self.update_page_display()
+    
+    def load_pagination_settings(self):
+        """加载分页设置"""
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+            if config.has_section('Pagination'):
+                if config.has_option('Pagination', 'records_per_page'):
+                    try:
+                        self.records_per_page = int(config.get('Pagination', 'records_per_page'))
+                    except ValueError:
+                        self.records_per_page = 15
+                else:
+                    self.records_per_page = 15
+            else:
+                self.records_per_page = 15
+        else:
+            self.records_per_page = 15
+    
+    def save_pagination_settings(self):
+        """保存分页设置"""
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        
+        # 读取现有的history.ini内容
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+        
+        # 确保Pagination节存在
+        if not config.has_section('Pagination'):
+            config.add_section('Pagination')
+        
+        # 保存每页记录数设置
+        config.set('Pagination', 'records_per_page', str(self.records_per_page))
+        
+        # 写入文件
+        with open(history_file, 'w', encoding='utf-8') as f:
+            config.write(f)
