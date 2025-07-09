@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QLabel, QHeaderView, QMessageBox, QAbstractItemView
+    QPushButton, QLabel, QHeaderView, QMessageBox, QAbstractItemView, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -40,6 +40,13 @@ class TableViewer(QWidget):
         self.visit_input_btn.setFixedWidth(100)
         self.info_layout.addWidget(self.visit_input_btn)
         
+        # 修改就诊信息按钮（位置在录入按钮和记录数量之间）
+        self.edit_visit_btn = QPushButton('修改就诊信息')
+        self.edit_visit_btn.clicked.connect(self.on_edit_visit_clicked)
+        self.edit_visit_btn.setFixedWidth(100)
+        self.edit_visit_btn.setEnabled(False)  # 初始状态禁用
+        self.info_layout.addWidget(self.edit_visit_btn)
+        
         # 移除原来的用户标签，因为主界面已经显示了
         self.record_count_label = QLabel("记录数量：0")
         self.record_count_label.setStyleSheet("color: #666;")
@@ -76,9 +83,9 @@ class TableViewer(QWidget):
     
     def init_table(self):
         """初始化表格"""
-        # 定义列标题
+        # 定义列标题（添加勾选框列）
         self.headers = [
-            "记录ID", "就诊日期", "医院", "科室", "医生", 
+            "选择", "记录ID", "就诊日期", "医院", "科室", "医生", 
             "器官系统", "症状事由", "诊断结果", "用药信息", "备注"
         ]
         
@@ -124,6 +131,16 @@ class TableViewer(QWidget):
         # 连接列宽变化信号
         header = self.table.horizontalHeader()
         header.sectionResized.connect(self.on_column_width_changed)
+        
+        # 为勾选框列设置固定宽度
+        self.table.setColumnWidth(0, 50)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        
+        # 连接双击信号
+        self.table.doubleClicked.connect(self.on_table_double_clicked)
+        
+        # 连接单击信号
+        self.table.clicked.connect(self.on_table_clicked)
     
     def on_visit_input_clicked(self):
         """录入就诊信息按钮点击事件"""
@@ -159,18 +176,24 @@ class TableViewer(QWidget):
         self.table.setRowCount(len(self.records))
         
         for row, record in enumerate(self.records):
-            # 按列顺序填充数据
+            # 第一列：勾选框
+            checkbox = QCheckBox()
+            checkbox.setStyleSheet("QCheckBox { margin: 5px; }")
+            checkbox.stateChanged.connect(self.on_checkbox_state_changed)
+            self.table.setCellWidget(row, 0, checkbox)
+            
+            # 按列顺序填充数据（列索引需要偏移1）
             items_data = [
-                (str(record.get('visit_record_id', '')), 0),
-                (str(record.get('date', '')), 1),
-                (str(record.get('hospital', '')), 2),
-                (str(record.get('department', '')), 3),
-                (str(record.get('doctor', '')), 4),
-                (str(record.get('organ_system', '')), 5),
-                (str(record.get('reason', '')), 6),
-                (str(record.get('diagnosis', '')), 7),
-                (str(record.get('medication', '')), 8),
-                (str(record.get('remark', '')), 9)
+                (str(record.get('visit_record_id', '')), 1),
+                (str(record.get('date', '')), 2),
+                (str(record.get('hospital', '')), 3),
+                (str(record.get('department', '')), 4),
+                (str(record.get('doctor', '')), 5),
+                (str(record.get('organ_system', '')), 6),
+                (str(record.get('reason', '')), 7),
+                (str(record.get('diagnosis', '')), 8),
+                (str(record.get('medication', '')), 9),
+                (str(record.get('remark', '')), 10)
             ]
             
             for text, col in items_data:
@@ -181,7 +204,7 @@ class TableViewer(QWidget):
                 self.table.setItem(row, col, item)
             
             # 设置空值的显示
-            for col in range(10):
+            for col in range(1, 11):  # 从第二列开始，因为第一列是勾选框
                 item = self.table.item(row, col)
                 if item and (item.text() == 'None' or item.text() == ''):
                     item.setText('')
@@ -224,7 +247,7 @@ class TableViewer(QWidget):
         if os.path.exists(settings_file):
             config.read(settings_file, encoding='utf-8')
             if config.has_section('ColumnWidths'):
-                for i in range(10):  # 10列
+                for i in range(11):  # 11列（包括勾选框列）
                     key = f'column_{i}'
                     if config.has_option('ColumnWidths', key):
                         try:
@@ -235,8 +258,8 @@ class TableViewer(QWidget):
         # 如果没有找到设置，使用硬编码的默认值
         if not default_widths:
             default_widths = {
-                0: 60, 1: 100, 2: 120, 3: 100, 4: 80,
-                5: 100, 6: 150, 7: 150, 8: 120, 9: 100
+                0: 50, 1: 60, 2: 100, 3: 120, 4: 100, 5: 80,
+                6: 100, 7: 150, 8: 150, 9: 120, 10: 100
             }
         
         return default_widths
@@ -250,7 +273,7 @@ class TableViewer(QWidget):
         if os.path.exists(history_file):
             config.read(history_file, encoding='utf-8')
             if config.has_section('ColumnWidths'):
-                for i in range(10):  # 10列
+                for i in range(11):  # 11列（包括勾选框列）
                     key = f'column_{i}'
                     if config.has_option('ColumnWidths', key):
                         try:
@@ -274,7 +297,7 @@ class TableViewer(QWidget):
             config.add_section('ColumnWidths')
         
         # 保存当前列宽
-        for i in range(10):
+        for i in range(11):  # 11列（包括勾选框列）
             width = self.table.columnWidth(i)
             config.set('ColumnWidths', f'column_{i}', str(width))
         
@@ -308,13 +331,122 @@ class TableViewer(QWidget):
         
         header = self.table.horizontalHeader()
         
-        # 设置所有列为可拖拽调整
-        for i in range(10):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
-            if i in self.current_column_widths:
-                self.table.setColumnWidth(i, self.current_column_widths[i])
+        # 设置除勾选框列外的所有列为可拖拽调整
+        for i in range(11):  # 11列（包括勾选框列）
+            if i == 0:  # 勾选框列固定宽度
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(i, 50)
+            else:
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+                if i in self.current_column_widths:
+                    self.table.setColumnWidth(i, self.current_column_widths[i])
     
     def on_column_width_changed(self, logical_index, old_size, new_size):
         """列宽改变时的处理函数"""
         # 保存新的列宽到history.ini
         self.save_user_column_widths()
+
+    def on_checkbox_state_changed(self):
+        """勾选框状态改变时的处理函数"""
+        checked_count = self.get_checked_rows_count()
+        
+        # 如果选中了一行，启用修改按钮；如果选中超过一行或没有选中，禁用修改按钮
+        if checked_count == 1:
+            self.edit_visit_btn.setEnabled(True)
+        else:
+            self.edit_visit_btn.setEnabled(False)
+
+    def get_checked_rows_count(self):
+        """获取勾选的行数"""
+        count = 0
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                count += 1
+        return count
+
+    def get_checked_record(self):
+        """获取当前勾选的记录数据（仅在勾选一行时返回）"""
+        checked_rows = []
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                checked_rows.append(row)
+        
+        if len(checked_rows) != 1:
+            return None
+        
+        row = checked_rows[0]
+        if 0 <= row < len(self.records):
+            return self.records[row]
+        
+        return None
+
+    def on_table_clicked(self, index):
+        """单击表格行时切换勾选状态"""
+        if not self.current_user:
+            return
+        
+        # 获取单击的行
+        row = index.row()
+        if 0 <= row < self.table.rowCount():
+            # 获取该行的勾选框
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox:
+                # 切换勾选状态
+                checkbox.setChecked(not checkbox.isChecked())
+
+    def on_table_double_clicked(self, index):
+        """双击表格行时进入修改模式"""
+        if not self.current_user:
+            QMessageBox.warning(self, "错误", "请先选择用户")
+            return
+        
+        # 获取双击的行
+        row = index.row()
+        if 0 <= row < len(self.records):
+            record = self.records[row]
+            
+            # 导入对话框类
+            from .visit_record_dialog import VisitRecordDialog
+            
+            # 打开编辑模式的对话框
+            dialog = VisitRecordDialog(
+                user_name=self.current_user,
+                parent=self,
+                edit_record=record
+            )
+            
+            # 连接信号，当记录更新后刷新表格
+            dialog.record_uploaded.connect(self.load_data)
+            
+            # 显示对话框
+            dialog.exec()
+
+    def on_edit_visit_clicked(self):
+        """修改就诊信息按钮点击事件"""
+        if not self.current_user:
+            QMessageBox.warning(self, "错误", "请先选择用户")
+            return
+        
+        # 获取勾选的记录
+        selected_record = self.get_checked_record()
+        if not selected_record:
+            QMessageBox.warning(self, "错误", "请勾选要修改的记录")
+            return
+        
+        # 导入对话框类
+        from .visit_record_dialog import VisitRecordDialog
+        
+        # 打开编辑模式的对话框
+        dialog = VisitRecordDialog(
+            user_name=self.current_user,
+            parent=self,
+            edit_record=selected_record
+        )
+        
+        # 连接信号，当记录更新后刷新表格
+        dialog.record_uploaded.connect(self.load_data)
+        
+        # 显示对话框
+        dialog.exec()

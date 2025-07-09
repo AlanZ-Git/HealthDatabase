@@ -15,13 +15,36 @@ class VisitRecordDialog(QDialog):
     # 定义信号，当记录上传成功时发出
     record_uploaded = pyqtSignal()
     
-    def __init__(self, user_name, parent=None):
+    def __init__(self, user_name, parent=None, edit_record=None):
         super().__init__(parent)
         self.user_name = user_name
+        self.edit_record = edit_record  # 编辑模式下的原始记录数据
+        self.is_edit_mode = edit_record is not None
         self.data_storage = DataStorage()
-        self.setWindowTitle('就诊信息')
+        
+        # 跟踪数据是否被修改
+        self.has_unsaved_changes = False
+        self.original_data = {}  # 存储原始数据用于比较
+        self.force_close = False  # 标志位，用于避免重复弹出确认对话框
+        
+        if self.is_edit_mode:
+            self.setWindowTitle('修改就诊信息')
+        else:
+            self.setWindowTitle('就诊信息')
+        
         self.setModal(True)  # 设置为模态对话框
         self.init_ui()
+        
+        # 如果是编辑模式，预填数据
+        if self.is_edit_mode:
+            self.populate_edit_data()
+        
+        # 保存初始数据状态
+        self.save_original_data()
+        
+        # 连接所有输入控件的信号来检测变化
+        self.connect_change_signals()
+        
         self.resize(1000, 600)
 
     def init_ui(self):
@@ -148,7 +171,12 @@ class VisitRecordDialog(QDialog):
         self.add_attachment_btn = QPushButton('添加附件按钮')
         self.remove_attachment_btn = QPushButton('移除附件按钮')
         self.remove_all_attachment_btn = QPushButton('移除所有附件按钮')
-        self.upload_btn = QPushButton('上传本次记录按钮')
+        
+        # 根据模式设置按钮文本
+        if self.is_edit_mode:
+            self.upload_btn = QPushButton('保存修改')
+        else:
+            self.upload_btn = QPushButton('上传本次记录按钮')
         
         self.upload_btn.clicked.connect(self.upload_visit_record)
         self.add_attachment_btn.clicked.connect(self.add_attachment)
@@ -188,10 +216,21 @@ class VisitRecordDialog(QDialog):
         attach_v.addLayout(attach_btn_h)
         attach_v.addWidget(self.attachment_list)
 
+        # 时间信息显示区（仅在编辑模式下显示）
+        time_info_layout = QHBoxLayout()
+        if self.is_edit_mode:
+            self.created_time_label = QLabel()
+            self.updated_time_label = QLabel()
+            self.created_time_label.setStyleSheet("color: #666; font-size: 11px;")
+            self.updated_time_label.setStyleSheet("color: #666; font-size: 11px;")
+            time_info_layout.addWidget(self.created_time_label)
+            time_info_layout.addStretch()
+            time_info_layout.addWidget(self.updated_time_label)
+
         # 底部按钮区
         bottom_btn_h = QHBoxLayout()
         close_btn = QPushButton('关闭')
-        close_btn.clicked.connect(self.close)
+        close_btn.clicked.connect(self.close_with_confirmation)
         bottom_btn_h.addStretch()
         bottom_btn_h.addWidget(close_btn)
 
@@ -203,6 +242,12 @@ class VisitRecordDialog(QDialog):
         main_layout.addLayout(input_h)
         main_layout.addWidget(line2)
         main_layout.addLayout(attach_v)
+        
+        # 添加时间信息布局（仅在编辑模式下）
+        if self.is_edit_mode:
+            main_layout.addSpacing(10)
+            main_layout.addLayout(time_info_layout)
+        
         main_layout.addSpacing(10)
         main_layout.addLayout(bottom_btn_h)
         main_layout.setSpacing(12)
@@ -309,33 +354,143 @@ class VisitRecordDialog(QDialog):
         
         self.date_edit.setDate(current_date)
 
+    def save_original_data(self):
+        """保存当前表单数据作为原始数据，用于比较是否有修改"""
+        self.original_data = {
+            'date': self.date_edit.date().toString("yyyy-MM-dd"),
+            'hospital': self.hospital_edit.text().strip(),
+            'department': self.department_edit.text().strip(),
+            'doctor': self.doctor_edit.text().strip(),
+            'organ_system': self.organ_system_edit.text().strip(),
+            'reason': self.reason_edit.toPlainText().strip(),
+            'diagnosis': self.diagnosis_edit.toPlainText().strip(),
+            'medication': self.medication_edit.toPlainText().strip(),
+            'remark': self.remark_edit.toPlainText().strip(),
+        }
+
+    def connect_change_signals(self):
+        """连接所有输入控件的信号来检测数据变化"""
+        self.date_edit.dateChanged.connect(self.on_data_changed)
+        self.hospital_edit.textChanged.connect(self.on_data_changed)
+        self.department_edit.textChanged.connect(self.on_data_changed)
+        self.doctor_edit.textChanged.connect(self.on_data_changed)
+        self.organ_system_edit.textChanged.connect(self.on_data_changed)
+        self.reason_edit.textChanged.connect(self.on_data_changed)
+        self.diagnosis_edit.textChanged.connect(self.on_data_changed)
+        self.medication_edit.textChanged.connect(self.on_data_changed)
+        self.remark_edit.textChanged.connect(self.on_data_changed)
+        self.attachment_list.itemChanged.connect(self.on_data_changed)
+
+    def on_data_changed(self):
+        """数据改变时的处理函数"""
+        # 获取当前数据
+        current_data = {
+            'date': self.date_edit.date().toString("yyyy-MM-dd"),
+            'hospital': self.hospital_edit.text().strip(),
+            'department': self.department_edit.text().strip(),
+            'doctor': self.doctor_edit.text().strip(),
+            'organ_system': self.organ_system_edit.text().strip(),
+            'reason': self.reason_edit.toPlainText().strip(),
+            'diagnosis': self.diagnosis_edit.toPlainText().strip(),
+            'medication': self.medication_edit.toPlainText().strip(),
+            'remark': self.remark_edit.toPlainText().strip(),
+        }
+        
+        # 比较当前数据与原始数据
+        self.has_unsaved_changes = current_data != self.original_data
+
+    def close_with_confirmation(self):
+        """带确认的关闭方法"""
+        if self.has_unsaved_changes:
+            reply = QMessageBox.question(
+                self, 
+                '确认关闭', 
+                '您有未保存的修改，确定要放弃修改并关闭窗口吗？',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.force_close = True  # 设置强制关闭标志
+                self.close()
+        else:
+            self.close()
+
+    def closeEvent(self, event):
+        """重写关闭事件，检查未保存的修改"""
+        # 如果是强制关闭，直接关闭
+        if self.force_close:
+            event.accept()
+            return
+            
+        if self.has_unsaved_changes:
+            reply = QMessageBox.question(
+                self, 
+                '确认关闭', 
+                '您有未保存的修改，确定要放弃修改并关闭窗口吗？',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
+
     def upload_visit_record(self):
-        """上传本次就诊记录"""
+        """上传本次就诊记录或更新记录"""
         # 收集表单数据并整理成数据库字段字典
         visit_data = self._collect_visit_data()
         
+        # 在编辑模式下添加记录ID
+        if self.is_edit_mode:
+            visit_data['visit_record_id'] = self.edit_record.get('visit_record_id')
+        
         # 显示收集到的数据（调试用）
-        print("=== 收集到的就诊记录数据 ===")
+        mode_text = "修改" if self.is_edit_mode else "新增"
+        print(f"=== 收集到的就诊记录数据（{mode_text}）===")
         for key, value in visit_data.items():
             print(f"{key}: {value!r}")
         print("================================")
         
-        # 调用data_storage模块上传记录
+        # 调用对应的data_storage方法
         try:
-            success = self.data_storage.upload_visit_record(visit_data)
+            if self.is_edit_mode:
+                success = self.data_storage.update_visit_record(visit_data)
+                success_msg = '就诊记录修改成功！'
+                error_msg = '就诊记录修改失败！请检查数据格式和数据库连接。'
+            else:
+                success = self.data_storage.upload_visit_record(visit_data)
+                success_msg = '就诊记录上传成功！'
+                error_msg = '就诊记录上传失败！请检查数据格式和数据库连接。'
             
             if success:
-                QMessageBox.information(self, '成功', '就诊记录上传成功！')
+                QMessageBox.information(self, '成功', success_msg)
                 # 发出信号通知主窗口
                 self.record_uploaded.emit()
-                # 上传成功后清空表单，但保持就诊日期不变
-                self._clear_form_after_upload()
+                
+                # 重置修改标志，因为数据已保存
+                self.has_unsaved_changes = False
+                self.save_original_data()
+                
+                if self.is_edit_mode:
+                    # 编辑模式下成功后关闭对话框
+                    self.force_close = True  # 设置强制关闭标志
+                    self.close()
+                else:
+                    # 新增模式下清空表单，但保持就诊日期不变
+                    self._clear_form_after_upload()
+                    # 重新保存原始数据状态
+                    self.save_original_data()
             else:
-                QMessageBox.warning(self, '错误', '就诊记录上传失败！请检查数据格式和数据库连接。')
+                QMessageBox.warning(self, '错误', error_msg)
                 
         except Exception as e:
-            print(f"上传记录时发生错误: {e}")
-            QMessageBox.critical(self, '错误', f'上传记录时发生错误：\n{str(e)}')
+            operation = "修改" if self.is_edit_mode else "上传"
+            print(f"{operation}记录时发生错误: {e}")
+            QMessageBox.critical(self, '错误', f'{operation}记录时发生错误：\n{str(e)}')
 
     def _collect_visit_data(self) -> dict:
         """
@@ -383,4 +538,34 @@ class VisitRecordDialog(QDialog):
             'remark': self.remark_edit.toPlainText(),
             'attachment': [self.attachment_list.item(i).data(Qt.ItemDataRole.UserRole) 
                           for i in range(self.attachment_list.count())]
-        } 
+        }
+
+    def populate_edit_data(self):
+        """在编辑模式下预填数据"""
+        if not self.edit_record:
+            return
+        
+        # 预填基本信息
+        date_str = self.edit_record.get('date', '')
+        if date_str:
+            date = QDate.fromString(date_str, "yyyy-MM-dd")
+            if date.isValid():
+                self.date_edit.setDate(date)
+        
+        self.hospital_edit.setText(self.edit_record.get('hospital', '') or '')
+        self.department_edit.setText(self.edit_record.get('department', '') or '')
+        self.doctor_edit.setText(self.edit_record.get('doctor', '') or '')
+        self.organ_system_edit.setText(self.edit_record.get('organ_system', '') or '')
+        self.reason_edit.setPlainText(self.edit_record.get('reason', '') or '')
+        self.diagnosis_edit.setPlainText(self.edit_record.get('diagnosis', '') or '')
+        self.medication_edit.setPlainText(self.edit_record.get('medication', '') or '')
+        self.remark_edit.setPlainText(self.edit_record.get('remark', '') or '')
+        
+        # 设置时间显示
+        created_at = self.edit_record.get('created_at', '')
+        updated_at = self.edit_record.get('updated_at', '')
+        
+        if created_at:
+            self.created_time_label.setText(f"创建时间：{created_at}")
+        if updated_at:
+            self.updated_time_label.setText(f"更新时间：{updated_at}") 

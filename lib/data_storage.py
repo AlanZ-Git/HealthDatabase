@@ -438,3 +438,132 @@ class DataStorage:
         except Exception as e:
             print(f"查询用户就诊记录失败: {e}")
             return []
+
+    def get_visit_record_by_id(self, user_name: str, visit_record_id: int) -> Optional[Dict]:
+        """
+        根据ID获取单个就诊记录
+        
+        Args:
+            user_name: 用户名
+            visit_record_id: 就诊记录ID
+            
+        Returns:
+            就诊记录字典，如果未找到则返回None
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return None
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # 查询指定ID的就诊记录
+            cursor.execute('''
+                SELECT visit_record_id, date, hospital, department, doctor, 
+                       organ_system, reason, diagnosis, medication, remark,
+                       created_at, updated_at
+                FROM visit_records 
+                WHERE visit_record_id = ?
+            ''', (visit_record_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                record = {
+                    'visit_record_id': row[0],
+                    'date': row[1],
+                    'hospital': row[2],
+                    'department': row[3],
+                    'doctor': row[4],
+                    'organ_system': row[5],
+                    'reason': row[6],
+                    'diagnosis': row[7],
+                    'medication': row[8],
+                    'remark': row[9],
+                    'created_at': row[10],
+                    'updated_at': row[11]
+                }
+                return record
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"查询就诊记录失败: {e}")
+            return None
+
+    def update_visit_record(self, visit_data: Dict) -> bool:
+        """
+        更新就诊记录
+        
+        Args:
+            visit_data: 包含就诊信息的字典，必须包含visit_record_id和user_name，格式如下：
+            {
+                'user_name': '用户名',
+                'visit_record_id': 记录ID,
+                'date': '就诊日期',
+                'hospital': '医院名称',
+                'department': '科室名称',
+                'doctor': '医生名称',
+                'organ_system': '器官系统',
+                'reason': '就诊原因',
+                'diagnosis': '诊断结果',
+                'medication': '用药情况',
+                'remark': '备注'
+            }
+            
+        Returns:
+            是否更新成功
+        """
+        try:
+            user_name = visit_data.get('user_name')
+            visit_record_id = visit_data.get('visit_record_id')
+            
+            if not user_name or not visit_record_id:
+                print("错误：缺少用户名或记录ID")
+                return False
+            
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                print(f"错误：用户 {user_name} 的数据库不存在")
+                return False
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # 更新就诊记录
+            cursor.execute('''
+                UPDATE visit_records SET
+                    date = ?, hospital = ?, department = ?, doctor = ?, 
+                    organ_system = ?, reason = ?, diagnosis = ?, 
+                    medication = ?, remark = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE visit_record_id = ?
+            ''', (
+                visit_data.get('date', None),
+                visit_data.get('hospital', None),
+                visit_data.get('department', None),
+                visit_data.get('doctor', None),
+                visit_data.get('organ_system', None),
+                visit_data.get('reason', None),
+                visit_data.get('diagnosis', None),
+                visit_data.get('medication', None),
+                visit_data.get('remark', None),
+                visit_record_id
+            ))
+            
+            # 检查是否有记录被更新
+            if cursor.rowcount == 0:
+                print(f"错误：未找到ID为 {visit_record_id} 的记录")
+                conn.close()
+                return False
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"成功更新就诊记录，记录ID: {visit_record_id}")
+            return True
+            
+        except Exception as e:
+            print(f"更新就诊记录失败: {e}")
+            return False
