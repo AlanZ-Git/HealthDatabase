@@ -270,7 +270,6 @@ class VisitRecordDialog(QDialog):
             self.upload_btn = QPushButton('上传本次记录按钮')
         
         self.upload_btn.clicked.connect(self.upload_visit_record)
-        attach_btn_h.addWidget(self.upload_btn)
 
         # 附件展示区
         self.attachment_list = QListWidget()
@@ -323,6 +322,7 @@ class VisitRecordDialog(QDialog):
         close_btn = QPushButton('关闭')
         close_btn.clicked.connect(self.close_with_confirmation)
         bottom_btn_h.addStretch()
+        bottom_btn_h.addWidget(self.upload_btn)
         bottom_btn_h.addWidget(close_btn)
 
         # 主体布局

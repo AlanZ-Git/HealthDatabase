@@ -9,6 +9,7 @@ from lib.data_storage import DataStorage
 from lib.table_viewer import TableViewer
 from lib.visit_record_dialog import VisitRecordDialog
 from lib.settings_manager import SettingsManager
+import configparser
 
 
 class VisitInputWidget(QWidget):
@@ -16,6 +17,8 @@ class VisitInputWidget(QWidget):
         super().__init__()
         self.setWindowTitle('就诊记录')
         self.data_storage = DataStorage()  # 初始化数据存储管理器
+        # 加载窗口大小设置
+        self.load_window_size()
         self.init_ui()
 
     def init_ui(self):
@@ -36,8 +39,6 @@ class VisitInputWidget(QWidget):
         
         # 读取data文件夹下的sqlite文件
         self.load_users()
-        # 加载上次选择的用户
-        self.load_last_user()
         
         # 创建竖向分隔符
         separator = QFrame()
@@ -59,6 +60,9 @@ class VisitInputWidget(QWidget):
         # 连接信号，处理录入就诊信息的请求
         self.table_viewer.visit_input_requested.connect(self.open_visit_input_dialog)
         
+        # 加载上次选择的用户（必须在table_viewer创建之后）
+        self.load_last_user()
+        
         # 主布局
         main_layout = QVBoxLayout()
         main_layout.addLayout(user_layout)
@@ -79,7 +83,6 @@ class VisitInputWidget(QWidget):
 
     def load_last_user(self):
         """加载上次选择的用户"""
-        import configparser
         config = configparser.ConfigParser()
         history_file = 'history.ini'
         
@@ -91,6 +94,53 @@ class VisitInputWidget(QWidget):
                 index = self.user_combo.findText(last_user)
                 if index >= 0:
                     self.user_combo.setCurrentIndex(index)
+                    # 修复：手动触发用户数据加载
+                    self.on_user_changed()
+
+    def load_window_size(self):
+        """从history.ini加载窗口大小设置"""
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+            if config.has_section('Window'):
+                try:
+                    width = config.getint('Window', 'width', fallback=1200)
+                    height = config.getint('Window', 'height', fallback=800)
+                    self.resize(width, height)
+                    return
+                except:
+                    pass
+        
+        # 如果没有保存的大小设置，使用默认大小
+        self.resize(1200, 800)
+
+    def save_window_size(self):
+        """保存当前窗口大小到history.ini"""
+        config = configparser.ConfigParser()
+        history_file = 'history.ini'
+        
+        # 读取现有配置
+        if os.path.exists(history_file):
+            config.read(history_file, encoding='utf-8')
+        
+        # 确保Window节存在
+        if not config.has_section('Window'):
+            config.add_section('Window')
+        
+        # 保存窗口大小
+        config.set('Window', 'width', str(self.width()))
+        config.set('Window', 'height', str(self.height()))
+        
+        # 写入文件
+        with open(history_file, 'w', encoding='utf-8') as f:
+            config.write(f)
+
+    def closeEvent(self, event):
+        """窗口关闭事件：保存窗口大小"""
+        self.save_window_size()
+        event.accept()
 
     def create_new_user(self):
         """创建新用户"""
@@ -179,7 +229,6 @@ class VisitInputWidget(QWidget):
         # 保存当前用户到history.ini
         current_user = self.user_combo.currentText()
         if current_user and current_user != '请选择用户...':
-            import configparser
             config = configparser.ConfigParser()
             history_file = 'history.ini'
             if os.path.exists(history_file):
