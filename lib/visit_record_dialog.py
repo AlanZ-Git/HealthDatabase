@@ -214,9 +214,13 @@ class VisitRecordDialog(QDialog):
 
         department_label = QLabel('科室名称')
         self.department_edit = AutoCompleteLineEdit("科室名称输入框", history_limit=5)
-        # 设置数据获取函数，使用 lambda 传递 user_name 参数
+        # 设置数据获取函数，根据医院名称筛选科室
         self.department_edit.set_data_fetcher(
-            lambda limit: self.data_storage.get_history_departments(self.user_name, limit)
+            lambda limit: self.data_storage.get_history_departments_by_hospital(
+                self.user_name, 
+                self.hospital_edit.text().strip(), 
+                limit
+            )
         )
         
         department_hbox = QHBoxLayout()
@@ -226,9 +230,16 @@ class VisitRecordDialog(QDialog):
         department_hbox.addStretch()
 
         doctor_label = QLabel('医生名称')
-        self.doctor_edit = QLineEdit()
-        self.doctor_edit.setPlaceholderText('医生名称输入框')
-        self.doctor_edit.setMinimumWidth(208)
+        self.doctor_edit = AutoCompleteLineEdit("医生名称输入框", history_limit=5)
+        # 设置数据获取函数，根据医院名称筛选医生
+        self.doctor_edit.set_data_fetcher(
+            lambda limit: self.data_storage.get_history_doctors(
+                self.user_name, 
+                self.hospital_edit.text().strip(), 
+                limit
+            )
+        )
+        
         doctor_hbox = QHBoxLayout()
         doctor_hbox.setSpacing(6)
         doctor_hbox.addWidget(doctor_label)
@@ -410,6 +421,21 @@ class VisitRecordDialog(QDialog):
         main_layout.setSpacing(12)
         
         self.setLayout(main_layout)
+        
+        # 连接医院名称输入框的文本改变信号，以便更新科室名称的候选列表
+        self.hospital_edit.textChanged.connect(self._on_hospital_changed)
+
+    def _on_hospital_changed(self):
+        """医院名称改变时的处理"""
+        # 触发科室名称输入框的候选列表更新
+        self.department_edit._update_completer()
+        
+        # 触发医生名称输入框的候选列表更新
+        self.doctor_edit._update_completer()
+        
+        # 如果医院名称为空，清空科室名称输入框
+        if not self.hospital_edit.text().strip():
+            self.department_edit.clear()
 
     def add_attachment(self):
         """添加附件"""

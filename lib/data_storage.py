@@ -195,6 +195,50 @@ class DataStorage:
             print(f"查询历史科室名称失败: {e}")
             return []
     
+    def get_history_departments_by_hospital(self, user_name: str, hospital: Optional[str] = None, limit: int = 5) -> List[str]:
+        """
+        获取用户历史输入的科室名称，可按医院筛选
+        
+        Args:
+            user_name: 用户名
+            hospital: 医院名称，如果提供则只查询该医院的科室
+            limit: 返回结果数量限制，默认5个
+            
+        Returns:
+            科室名称列表，按从新到旧排序
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return []
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            if hospital and hospital.strip():
+                # 如果指定了医院，则只查询该医院的科室
+                cursor.execute('''
+                    SELECT DISTINCT department 
+                    FROM visit_records 
+                    WHERE department IS NOT NULL AND department != '' 
+                    AND hospital = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ''', (hospital, limit))
+            else:
+                # 如果没有指定医院，返回空列表（不执行查询）
+                conn.close()
+                return []
+            
+            departments = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            return departments
+            
+        except Exception as e:
+            print(f"查询历史科室名称失败: {e}")
+            return []
+    
     def get_history_doctors(self, user_name: str, hospital: Optional[str] = None, limit: int = 5) -> List[str]:
         """
         获取用户历史输入的医生名称
