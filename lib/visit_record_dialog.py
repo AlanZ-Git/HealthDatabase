@@ -11,6 +11,21 @@ from .data_storage import DataStorage
 from .attachment_dialog import AttachmentDialog
 
 
+class PlainTextEdit(QTextEdit):
+    """自定义的文本编辑器，粘贴时只保留纯文字但保留换行"""
+    
+    def insertFromMimeData(self, source):
+        """重写粘贴方法，只保留纯文字但保留换行"""
+        if source.hasText():
+            # 获取纯文字内容，保留换行符
+            plain_text = source.text()
+            # 直接插入纯文字
+            self.insertPlainText(plain_text)
+        else:
+            # 如果没有文字内容，使用默认行为
+            super().insertFromMimeData(source)
+
+
 class AutoCompleteLineEdit(QLineEdit):
     """带历史记录自动完成功能的输入框"""
     
@@ -262,13 +277,13 @@ class VisitRecordDialog(QDialog):
         # 器官系统、诊断结果、用药信息、备注、症状事由
         self.organ_system_edit = QLineEdit()
         self.organ_system_edit.setPlaceholderText('器官系统输入框')
-        self.diagnosis_edit = QTextEdit()
+        self.diagnosis_edit = PlainTextEdit()
         self.diagnosis_edit.setPlaceholderText('诊断结果输入框')
-        self.medication_edit = QTextEdit()
+        self.medication_edit = PlainTextEdit()
         self.medication_edit.setPlaceholderText('用药信息输入框')
-        self.remark_edit = QTextEdit()
+        self.remark_edit = PlainTextEdit()
         self.remark_edit.setPlaceholderText('备注输入框')
-        self.reason_edit = QTextEdit()
+        self.reason_edit = PlainTextEdit()
         self.reason_edit.setPlaceholderText('症状事由输入框')
 
         # 左侧：器官系统+症状事由
