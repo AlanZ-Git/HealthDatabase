@@ -29,9 +29,14 @@ class TableViewer(QWidget):
         self.current_page = 1  # 当前页码
         self.records_per_page = 15  # 每页记录数，默认15
         self.total_pages = 1  # 总页数
-        self.default_column_widths = {}
-        self.current_column_widths = {}
         self.search_text = ""  # 当前搜索文本
+        
+        # 列宽度管理
+        self.fixed_pixel_columns = [0, 1, 2, 5, 6, 11]  # 固定像素列：勾选框、记录ID、就诊日期、医生、器官系统、附件
+        self.proportional_columns = [3, 4, 7, 8, 9, 10]  # 比例分配列：医院、科室、症状事由、诊断结果、用药信息、备注
+        self.fixed_column_widths = {}  # 固定列的像素宽度
+        self.proportional_column_widths = {}  # 比例列的比例值（0-1之间）
+        self.is_adjusting_columns = False  # 标记是否正在调整列宽，避免递归
         
         # 单列筛选相关变量
         self.column_filter_enabled = False  # 单列筛选是否启用
@@ -301,14 +306,6 @@ class TableViewer(QWidget):
         # 连接标题点击信号，支持排序
         header.sectionClicked.connect(self.on_header_clicked)
         
-        # 为勾选框列和附件列设置固定宽度
-        self.table.setColumnWidth(0, 50)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        
-        # 为附件列设置固定宽度
-        self.table.setColumnWidth(11, 80)
-        header.setSectionResizeMode(11, QHeaderView.ResizeMode.Fixed)
-        
         # 连接双击信号
         self.table.doubleClicked.connect(self.on_table_double_clicked)
         
@@ -481,62 +478,107 @@ class TableViewer(QWidget):
     def load_column_width_settings(self):
         """加载列宽设置"""
         # 加载默认设置
-        self.default_column_widths = self.load_default_column_widths()
+        self.load_default_column_widths()
         
         # 加载用户自定义设置（如果存在）
-        self.current_column_widths = self.load_user_column_widths()
-        
-        # 如果没有用户自定义设置，使用默认设置
-        if not self.current_column_widths:
-            self.current_column_widths = self.default_column_widths.copy()
+        self.load_user_column_widths()
     
     def load_default_column_widths(self):
         """从settings.ini加载默认列宽设置"""
         config = configparser.ConfigParser()
         settings_file = 'settings.ini'
-        default_widths = {}
+        
+        # 设置默认值
+        default_fixed_widths = {
+            0: 50, 1: 60, 2: 100, 5: 80, 6: 100, 11: 80
+        }
+        default_proportional_widths = {
+            3: 0.2, 4: 0.15, 7: 0.25, 8: 0.25, 9: 0.15, 10: 0.15  # 比例总和为1.15，会自动归一化
+        }
         
         if os.path.exists(settings_file):
             config.read(settings_file, encoding='utf-8')
-            if config.has_section('ColumnWidths'):
-                for i in range(12):  # 12列（包括勾选框列和附件列）
-                    key = f'column_{i}'
-                    if config.has_option('ColumnWidths', key):
+            
+            # 读取固定像素列设置
+            if config.has_section('FixedColumnWidths'):
+                for col in self.fixed_pixel_columns:
+                    key = f'column_{col}'
+                    if config.has_option('FixedColumnWidths', key):
                         try:
-                            default_widths[i] = int(config.get('ColumnWidths', key))
+                            default_fixed_widths[col] = int(config.get('FixedColumnWidths', key))
+                        except ValueError:
+                            pass
+            
+            # 读取比例列设置
+            if config.has_section('ProportionalColumnWidths'):
+                for col in self.proportional_columns:
+                    key = f'column_{col}'
+                    if config.has_option('ProportionalColumnWidths', key):
+                        try:
+                            default_proportional_widths[col] = float(config.get('ProportionalColumnWidths', key))
                         except ValueError:
                             pass
         
-        # 如果没有找到设置，使用硬编码的默认值
-        if not default_widths:
-            default_widths = {
-                0: 50, 1: 60, 2: 100, 3: 120, 4: 100, 5: 80,
-                6: 100, 7: 150, 8: 150, 9: 120, 10: 100, 11: 80
-            }
+        # 设置默认宽度
+        self.fixed_column_widths = default_fixed_widths.copy()
         
-        return default_widths
+        # 归一化比例值，确保总和为1
+        total_proportion = sum(default_proportional_widths.values())
+        if total_proportion > 0:
+            self.proportional_column_widths = {
+                col: proportion / total_proportion 
+                for col, proportion in default_proportional_widths.items()
+            }
+        else:
+            # 如果没有比例设置，平均分配
+            self.proportional_column_widths = {
+                col: 1.0 / len(self.proportional_columns) 
+                for col in self.proportional_columns
+            }
     
     def load_user_column_widths(self):
         """从history.ini加载用户自定义列宽设置"""
         config = configparser.ConfigParser()
         history_file = 'history.ini'
-        user_widths = {}
         
         if os.path.exists(history_file):
             config.read(history_file, encoding='utf-8')
-            if config.has_section('ColumnWidths'):
-                for i in range(12):  # 12列（包括勾选框列和附件列）
-                    key = f'column_{i}'
-                    if config.has_option('ColumnWidths', key):
+            
+            # 读取固定像素列的用户设置
+            if config.has_section('FixedColumnWidths'):
+                for col in self.fixed_pixel_columns:
+                    key = f'column_{col}'
+                    if config.has_option('FixedColumnWidths', key):
                         try:
-                            user_widths[i] = int(config.get('ColumnWidths', key))
+                            self.fixed_column_widths[col] = int(config.get('FixedColumnWidths', key))
                         except ValueError:
                             pass
-        
-        return user_widths
+            
+            # 读取比例列的用户设置
+            if config.has_section('ProportionalColumnWidths'):
+                user_proportions = {}
+                for col in self.proportional_columns:
+                    key = f'column_{col}'
+                    if config.has_option('ProportionalColumnWidths', key):
+                        try:
+                            user_proportions[col] = float(config.get('ProportionalColumnWidths', key))
+                        except ValueError:
+                            pass
+                
+                # 如果有用户设置的比例，归一化后使用
+                if user_proportions:
+                    total_proportion = sum(user_proportions.values())
+                    if total_proportion > 0:
+                        self.proportional_column_widths.update({
+                            col: proportion / total_proportion 
+                            for col, proportion in user_proportions.items()
+                        })
     
     def save_user_column_widths(self):
         """保存用户自定义列宽设置到history.ini"""
+        if self.is_adjusting_columns:
+            return  # 如果正在批量调整列宽，不保存
+            
         config = configparser.ConfigParser()
         history_file = 'history.ini'
         
@@ -544,14 +586,28 @@ class TableViewer(QWidget):
         if os.path.exists(history_file):
             config.read(history_file, encoding='utf-8')
         
-        # 确保ColumnWidths节存在
-        if not config.has_section('ColumnWidths'):
-            config.add_section('ColumnWidths')
+        # 确保节存在
+        if not config.has_section('FixedColumnWidths'):
+            config.add_section('FixedColumnWidths')
+        if not config.has_section('ProportionalColumnWidths'):
+            config.add_section('ProportionalColumnWidths')
         
-        # 保存当前列宽
-        for i in range(12):  # 12列（包括勾选框列和附件列）
-            width = self.table.columnWidth(i)
-            config.set('ColumnWidths', f'column_{i}', str(width))
+        # 保存固定列宽度
+        for col in self.fixed_pixel_columns:
+            width = self.table.columnWidth(col)
+            config.set('FixedColumnWidths', f'column_{col}', str(width))
+            self.fixed_column_widths[col] = width
+        
+        # 计算并保存比例列的比例
+        total_proportional_width = sum(
+            self.table.columnWidth(col) for col in self.proportional_columns
+        )
+        
+        if total_proportional_width > 0:
+            for col in self.proportional_columns:
+                proportion = self.table.columnWidth(col) / total_proportional_width
+                config.set('ProportionalColumnWidths', f'column_{col}', str(proportion))
+                self.proportional_column_widths[col] = proportion
         
         # 写入文件
         with open(history_file, 'w', encoding='utf-8') as f:
@@ -565,10 +621,13 @@ class TableViewer(QWidget):
         
         if os.path.exists(history_file):
             config.read(history_file, encoding='utf-8')
-            if config.has_section('ColumnWidths'):
-                config.remove_section('ColumnWidths')
-                with open(history_file, 'w', encoding='utf-8') as f:
-                    config.write(f)
+            if config.has_section('FixedColumnWidths'):
+                config.remove_section('FixedColumnWidths')
+            if config.has_section('ProportionalColumnWidths'):
+                config.remove_section('ProportionalColumnWidths')
+            # 保留其他部分，只删除列宽设置
+            with open(history_file, 'w', encoding='utf-8') as f:
+                config.write(f)
         
         # 重新加载设置
         self.load_column_width_settings()
@@ -576,25 +635,53 @@ class TableViewer(QWidget):
         # 应用默认列宽
         self.apply_column_widths()
     
+    def calculate_proportional_widths(self):
+        """计算比例列的实际像素宽度"""
+        # 获取表格总宽度
+        table_width = self.table.width()
+        
+        # 减去固定列的宽度
+        fixed_total_width = sum(self.fixed_column_widths.values())
+        
+        # 减去滚动条宽度（大约16-20像素）
+        scrollbar_width = 20
+        
+        # 可用于比例分配的宽度
+        available_width = max(200, table_width - fixed_total_width - scrollbar_width)
+        
+        # 计算各比例列的实际宽度
+        proportional_widths = {}
+        for col in self.proportional_columns:
+            proportion = self.proportional_column_widths.get(col, 1.0 / len(self.proportional_columns))
+            proportional_widths[col] = max(50, int(available_width * proportion))  # 最小宽度50像素
+        
+        return proportional_widths
+    
     def apply_column_widths(self):
         """应用列宽设置到表格"""
-        if not self.current_column_widths:
+        if not hasattr(self.table, 'horizontalHeader'):
             return
+            
+        self.is_adjusting_columns = True  # 标记正在调整列宽
         
         header = self.table.horizontalHeader()
         
-        # 设置除勾选框列和附件列外的所有列为可拖拽调整
-        for i in range(12):  # 12列（包括勾选框列和附件列）
-            if i == 0:  # 勾选框列固定宽度
-                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
-                self.table.setColumnWidth(i, 50)
-            elif i == 11:  # 附件列固定宽度
-                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
-                self.table.setColumnWidth(i, 80)
-            else:
-                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
-                if i in self.current_column_widths:
-                    self.table.setColumnWidth(i, self.current_column_widths[i])
+        # 计算比例列的实际宽度
+        proportional_widths = self.calculate_proportional_widths()
+        
+        # 设置所有列为可交互模式（允许拖拽）
+        for i in range(12):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        
+        # 设置固定列宽度
+        for col, width in self.fixed_column_widths.items():
+            self.table.setColumnWidth(col, width)
+        
+        # 设置比例列宽度
+        for col, width in proportional_widths.items():
+            self.table.setColumnWidth(col, width)
+        
+        self.is_adjusting_columns = False  # 结束调整标记
         
         # 如果单列筛选已启用，更新筛选输入框的宽度
         if self.column_filter_enabled:
@@ -602,12 +689,22 @@ class TableViewer(QWidget):
     
     def on_column_width_changed(self, logical_index, old_size, new_size):
         """列宽改变时的处理函数"""
+        if self.is_adjusting_columns:
+            return  # 如果正在批量调整，不处理
+            
         # 保存新的列宽到history.ini
         self.save_user_column_widths()
         
         # 如果单列筛选已启用，更新对应筛选输入框的宽度
         if self.column_filter_enabled and logical_index < len(self.filter_widgets):
             self.filter_widgets[logical_index].setFixedWidth(new_size)
+    
+    def resizeEvent(self, event):
+        """窗口大小改变事件"""
+        super().resizeEvent(event)
+        # 当窗口大小改变时，重新计算比例列的宽度
+        if hasattr(self, 'table') and self.table is not None:
+            self.apply_column_widths()
 
     def on_header_clicked(self, logical_index):
         """表格标题点击事件处理，实现排序功能"""
