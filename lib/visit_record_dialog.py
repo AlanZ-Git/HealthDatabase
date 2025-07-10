@@ -3,12 +3,80 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QGridLayout, QFileDialog, QFrame, QSizePolicy,
     QListWidgetItem, QCheckBox, QDateEdit, QCompleter, QMessageBox
 )
-from PyQt6.QtCore import Qt, QDate, pyqtSignal
+from PyQt6.QtCore import Qt, QDate, pyqtSignal, QStringListModel
 from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent
 import os
 
 from .data_storage import DataStorage
 from .attachment_dialog import AttachmentDialog
+
+
+class AutoCompleteLineEdit(QLineEdit):
+    """带历史记录自动完成功能的输入框"""
+    
+    def __init__(self, placeholder_text: str = "", history_limit: int = 5, parent=None):
+        super().__init__(parent)
+        self.setPlaceholderText(placeholder_text)
+        self.setMinimumWidth(208)
+        self.history_limit = history_limit
+        self.data_fetcher = None  # 数据获取函数
+        
+        # 初始化自动完成器
+        self._setup_completer()
+        
+        # 连接信号
+        self.textChanged.connect(self._update_completer)
+    
+    def _setup_completer(self):
+        """设置自动完成器"""
+        self.completer = QCompleter()
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.setCompleter(self.completer)
+    
+    def set_data_fetcher(self, fetcher_func):
+        """设置数据获取函数"""
+        self.data_fetcher = fetcher_func
+    
+    def focusInEvent(self, event):
+        """获得焦点时触发自动完成"""
+        super().focusInEvent(event)
+        self._update_completer()
+        
+        # 如果输入框为空且有候选项，显示下拉列表
+        if (self.completer.model() and 
+            self.completer.model().rowCount() > 0 and 
+            not self.text().strip()):
+            self.completer.setCompletionPrefix("")
+            self.completer.complete()
+    
+    def _update_completer(self):
+        """更新自动完成列表"""
+        if not self.data_fetcher:
+            return
+        
+        # 获取历史数据
+        history_data = self.data_fetcher(self.history_limit)
+        if not history_data:
+            self.completer.setModel(None)
+            return
+        
+        # 过滤数据
+        current_text = self.text().strip()
+        if current_text:
+            filtered_data = [item for item in history_data 
+                           if current_text.lower() in item.lower()]
+        else:
+            filtered_data = history_data
+        
+        # 更新模型
+        if filtered_data:
+            model = QStringListModel(filtered_data)
+            self.completer.setModel(model)
+        else:
+            self.completer.setModel(None)
+
 
 class VisitRecordDialog(QDialog):
     """就诊信息录入弹窗"""
@@ -80,7 +148,7 @@ class VisitRecordDialog(QDialog):
                     )
                     
                     if reply == QMessageBox.StandardButton.Yes:
-                        visit_record_id = self.edit_record.get('visit_record_id')
+                        visit_record_id = self.edit_record.get('visit_record_id') if self.edit_record else None
                         if visit_record_id:
                             success_count = 0
                             for file_path in file_paths:
@@ -132,16 +200,11 @@ class VisitRecordDialog(QDialog):
         date_hbox.addStretch()
 
         hospital_label = QLabel('医院名称')
-        self.hospital_edit = QLineEdit()
-        self.hospital_edit.setPlaceholderText('医院名称输入框')
-        self.hospital_edit.setMinimumWidth(208)
-        # 为医院名称输入框添加自动完成功能
-        self.hospital_completer = QCompleter()
-        self.hospital_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.hospital_edit.setCompleter(self.hospital_completer)
-        self.hospital_edit.textChanged.connect(self.update_hospital_completer)
-        # 初始化自动完成列表
-        self.update_hospital_completer()
+        self.hospital_edit = AutoCompleteLineEdit("医院名称输入框", history_limit=5)
+        # 设置数据获取函数，使用 lambda 传递 user_name 参数
+        self.hospital_edit.set_data_fetcher(
+            lambda limit: self.data_storage.get_history_hospitals(self.user_name, limit)
+        )
         
         hospital_hbox = QHBoxLayout()
         hospital_hbox.setSpacing(6)
@@ -150,9 +213,12 @@ class VisitRecordDialog(QDialog):
         hospital_hbox.addStretch()
 
         department_label = QLabel('科室名称')
-        self.department_edit = QLineEdit()
-        self.department_edit.setPlaceholderText('科室名称输入框')
-        self.department_edit.setMinimumWidth(208)
+        self.department_edit = AutoCompleteLineEdit("科室名称输入框", history_limit=5)
+        # 设置数据获取函数，使用 lambda 传递 user_name 参数
+        self.department_edit.set_data_fetcher(
+            lambda limit: self.data_storage.get_history_departments(self.user_name, limit)
+        )
+        
         department_hbox = QHBoxLayout()
         department_hbox.setSpacing(6)
         department_hbox.addWidget(department_label)
@@ -595,27 +661,7 @@ class VisitRecordDialog(QDialog):
                     self.attachment_list.takeItem(i)
                     break
 
-    def update_hospital_completer(self):
-        """更新医院名称自动完成列表"""
-        # 获取历史医院名称
-        history_hospitals = self.data_storage.get_history_hospitals(self.user_name, limit=20)
-        
-        # 获取当前输入内容
-        current_text = self.hospital_edit.text().strip()
-        
-        # 根据输入内容过滤医院名称
-        if current_text:
-            filtered_hospitals = [hospital for hospital in history_hospitals 
-                                if current_text.lower() in hospital.lower()]
-        else:
-            filtered_hospitals = history_hospitals[:5]
-        
-        # 更新自动完成列表
-        self.hospital_completer.setModel(None)
-        if filtered_hospitals:
-            from PyQt6.QtCore import QStringListModel
-            model = QStringListModel(filtered_hospitals)
-            self.hospital_completer.setModel(model)
+
 
     def _clear_form_after_upload(self):
         """上传记录后清空表单，但保持就诊日期不变"""
@@ -728,7 +774,7 @@ class VisitRecordDialog(QDialog):
         visit_data = self._collect_visit_data()
         
         # 在编辑模式下添加记录ID
-        if self.is_edit_mode:
+        if self.is_edit_mode and self.edit_record:
             visit_data['visit_record_id'] = self.edit_record.get('visit_record_id')
         
         # 显示收集到的数据（调试用）
