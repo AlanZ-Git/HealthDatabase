@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QHeaderView, QMessageBox, QAbstractItemView, QCheckBox,
-    QSpinBox
+    QSpinBox, QLineEdit
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -25,11 +25,13 @@ class TableViewer(QWidget):
         self.current_user = None
         self.records = []
         self.all_records = []  # 存储所有记录，用于分页
+        self.filtered_records = []  # 存储搜索过滤后的记录
         self.current_page = 1  # 当前页码
         self.records_per_page = 15  # 每页记录数，默认15
         self.total_pages = 1  # 总页数
         self.default_column_widths = {}
         self.current_column_widths = {}
+        self.search_text = ""  # 当前搜索文本
         
         # 排序状态管理
         self.current_sort_column = 'visit_record_id'  # 默认按记录ID排序
@@ -39,6 +41,76 @@ class TableViewer(QWidget):
         self.load_column_width_settings()
         self.load_pagination_settings()
         self.init_ui()
+
+    def multi_keyword_search(self, text: str, keywords: str) -> bool:
+        """
+        多关键字搜索函数
+        
+        Args:
+            text: 要搜索的文本内容
+            keywords: 搜索关键字，用空格分隔多个关键字
+            
+        Returns:
+            如果文本包含所有关键字则返回True，否则返回False
+        """
+        if not keywords.strip():
+            return True  # 空搜索匹配所有内容
+        
+        if not text:
+            return False  # 空文本不匹配任何关键字
+        
+        # 将搜索关键字按空格分割，并去掉空字符串
+        keyword_list = [kw.strip().lower() for kw in keywords.split() if kw.strip()]
+        
+        if not keyword_list:
+            return True  # 没有有效关键字，匹配所有内容
+        
+        # 将文本转换为小写进行不区分大小写的搜索
+        text_lower = text.lower()
+        
+        # 检查是否所有关键字都在文本中出现
+        for keyword in keyword_list:
+            if keyword not in text_lower:
+                return False
+        
+        return True
+
+    def filter_records_by_search(self, records: List[Dict], search_text: str) -> List[Dict]:
+        """
+        根据搜索文本过滤记录
+        
+        Args:
+            records: 原始记录列表
+            search_text: 搜索文本
+            
+        Returns:
+            过滤后的记录列表
+        """
+        if not search_text.strip():
+            return records  # 空搜索返回所有记录
+        
+        filtered = []
+        
+        for record in records:
+            # 将记录中的所有文本字段连接起来进行搜索
+            searchable_text = " ".join([
+                str(record.get('visit_record_id', '')),
+                str(record.get('date', '')),
+                str(record.get('hospital', '')),
+                str(record.get('department', '')),
+                str(record.get('doctor', '')),
+                str(record.get('organ_system', '')),
+                str(record.get('reason', '')),
+                str(record.get('diagnosis', '')),
+                str(record.get('medication', '')),
+                str(record.get('remark', ''))
+            ])
+            
+            # 使用多关键字搜索函数
+            if self.multi_keyword_search(searchable_text, search_text):
+                filtered.append(record)
+        
+        return filtered
     
     def init_ui(self):
         """初始化界面"""
@@ -65,6 +137,14 @@ class TableViewer(QWidget):
         self.record_count_label.setStyleSheet("color: #666;")
         
         self.info_layout.addWidget(self.record_count_label)
+        
+        # 搜索输入框
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜索记录，多个关键字用空格隔开")
+        self.search_input.setFixedWidth(200)
+        self.search_input.textChanged.connect(self.on_search_text_changed)
+        self.info_layout.addWidget(self.search_input)
+        
         self.info_layout.addStretch()
         
         # 刷新按钮
@@ -235,6 +315,10 @@ class TableViewer(QWidget):
                 self.current_sort_column, 
                 self.current_sort_order
             )
+            
+            # 应用搜索过滤
+            self.filtered_records = self.filter_records_by_search(self.all_records, self.search_text)
+            
             self.calculate_pagination()
             self.update_page_display()
             
@@ -244,12 +328,12 @@ class TableViewer(QWidget):
     
     def calculate_pagination(self):
         """计算分页信息"""
-        if not self.all_records:
+        if not self.filtered_records:
             self.total_pages = 1
             self.current_page = 1
             self.records = []
         else:
-            self.total_pages = max(1, (len(self.all_records) + self.records_per_page - 1) // self.records_per_page)
+            self.total_pages = max(1, (len(self.filtered_records) + self.records_per_page - 1) // self.records_per_page)
             self.current_page = min(self.current_page, self.total_pages)
             if self.current_page < 1:
                 self.current_page = 1
@@ -257,12 +341,17 @@ class TableViewer(QWidget):
             # 计算当前页的记录
             start_index = (self.current_page - 1) * self.records_per_page
             end_index = start_index + self.records_per_page
-            self.records = self.all_records[start_index:end_index]
+            self.records = self.filtered_records[start_index:end_index]
     
     def update_page_display(self):
         """更新页面显示"""
         self.populate_table()
-        self.record_count_label.setText(f"记录数量：{len(self.all_records)}")
+        
+        # 显示过滤后的记录数量，如果有搜索条件，同时显示总数
+        if self.search_text.strip():
+            self.record_count_label.setText(f"记录数量：{len(self.filtered_records)} (共{len(self.all_records)}条)")
+        else:
+            self.record_count_label.setText(f"记录数量：{len(self.all_records)}")
         
         # 更新页码信息
         if self.total_pages > 0:
@@ -340,6 +429,7 @@ class TableViewer(QWidget):
         self.table.setRowCount(0)
         self.records = []
         self.all_records = []
+        self.filtered_records = [] # 清空过滤后的记录
         self.current_page = 1
         self.total_pages = 1
         self.record_count_label.setText("记录数量：0")
@@ -737,3 +827,9 @@ class TableViewer(QWidget):
         dialog = AttachmentDialog(self.current_user, visit_record_id, self)
         dialog.attachments_changed.connect(self.refresh_data)  # 连接信号，当附件变化时刷新数据
         dialog.exec()
+
+    def on_search_text_changed(self, text):
+        """搜索文本改变时的处理函数"""
+        self.search_text = text
+        self.current_page = 1  # 重置到第一页
+        self.load_data()  # 重新加载数据以应用新的搜索过滤
