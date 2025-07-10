@@ -30,6 +30,12 @@ class TableViewer(QWidget):
         self.total_pages = 1  # 总页数
         self.default_column_widths = {}
         self.current_column_widths = {}
+        
+        # 排序状态管理
+        self.current_sort_column = 'visit_record_id'  # 默认按记录ID排序
+        self.current_sort_order = 'ASC'  # 默认升序 (ASC/DESC)
+        self.sortable_columns = {1: 'visit_record_id', 2: 'date'}  # 可排序的列：列索引->数据库字段名
+        
         self.load_column_width_settings()
         self.load_pagination_settings()
         self.init_ui()
@@ -142,7 +148,9 @@ class TableViewer(QWidget):
         ]
         
         self.table.setColumnCount(len(self.headers))
+        # 先设置基础标题，然后更新为包含排序指示器的标题
         self.table.setHorizontalHeaderLabels(self.headers)
+        self.update_header_labels()
         
         # 设置表格属性
         self.table.setAlternatingRowColors(True)  # 交替行颜色
@@ -184,6 +192,9 @@ class TableViewer(QWidget):
         header = self.table.horizontalHeader()
         header.sectionResized.connect(self.on_column_width_changed)
         
+        # 连接标题点击信号，支持排序
+        header.sectionClicked.connect(self.on_header_clicked)
+        
         # 为勾选框列和附件列设置固定宽度
         self.table.setColumnWidth(0, 50)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -218,8 +229,12 @@ class TableViewer(QWidget):
             return
         
         try:
-            # 获取用户的就诊记录
-            self.all_records = self.data_storage.get_user_visit_records(self.current_user)
+            # 获取用户的就诊记录，传递当前排序参数
+            self.all_records = self.data_storage.get_user_visit_records(
+                self.current_user, 
+                self.current_sort_column, 
+                self.current_sort_order
+            )
             self.calculate_pagination()
             self.update_page_display()
             
@@ -466,6 +481,56 @@ class TableViewer(QWidget):
         """列宽改变时的处理函数"""
         # 保存新的列宽到history.ini
         self.save_user_column_widths()
+
+    def on_header_clicked(self, logical_index):
+        """表格标题点击事件处理，实现排序功能"""
+        # 只有记录ID和就诊日期列支持排序
+        if logical_index not in self.sortable_columns:
+            return
+        
+        # 获取当前点击的列对应的数据库字段名
+        clicked_column = self.sortable_columns[logical_index]
+        
+        # 如果点击的是当前排序列，则切换排序顺序
+        if clicked_column == self.current_sort_column:
+            self.current_sort_order = 'DESC' if self.current_sort_order == 'ASC' else 'ASC'
+        else:
+            # 如果点击的是不同的列，则设置为新的排序列，默认升序
+            self.current_sort_column = clicked_column
+            self.current_sort_order = 'ASC'
+        
+        # 更新表格标题显示（显示排序指示器）
+        self.update_header_labels()
+        
+        # 重新加载数据以应用新的排序
+        if self.current_user:
+            self.load_data()
+
+    def update_header_labels(self):
+        """更新表格标题，显示排序指示器"""
+        # 基础标题（不包含排序指示器）
+        base_headers = [
+            "选择", "记录ID", "就诊日期", "医院", "科室", "医生", 
+            "器官系统", "症状事由", "诊断结果", "用药信息", "备注", "附件"
+        ]
+        
+        # 复制基础标题
+        updated_headers = base_headers.copy()
+        
+        # 为当前排序列添加排序指示器
+        for col_index, db_field in self.sortable_columns.items():
+            if db_field == self.current_sort_column:
+                # 根据排序顺序选择三角形符号
+                if self.current_sort_order == 'ASC':
+                    indicator = " ▲"  # 升序：尖朝上的黑色三角形
+                else:
+                    indicator = " ▼"  # 降序：尖朝下的黑色三角形
+                
+                # 在对应列标题后添加指示器
+                updated_headers[col_index] = base_headers[col_index] + indicator
+        
+        # 更新表格标题
+        self.table.setHorizontalHeaderLabels(updated_headers)
 
     def on_checkbox_state_changed(self):
         """勾选框状态改变时的处理函数"""

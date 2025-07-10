@@ -431,12 +431,14 @@ class DataStorage:
                 print(f"处理附件失败 {attachment_path}: {e}")
                 continue
 
-    def get_user_visit_records(self, user_name: str) -> List[Dict]:
+    def get_user_visit_records(self, user_name: str, sort_column: str = 'visit_record_id', sort_order: str = 'ASC') -> List[Dict]:
         """
         获取用户的所有就诊记录
         
         Args:
             user_name: 用户名
+            sort_column: 排序字段，支持 'visit_record_id' 或 'date'
+            sort_order: 排序顺序，'ASC' 或 'DESC'
             
         Returns:
             就诊记录列表，每个记录为字典格式
@@ -449,14 +451,24 @@ class DataStorage:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # 查询所有就诊记录，按就诊记录ID升序排列
-            cursor.execute('''
+            # 验证排序参数
+            valid_columns = ['visit_record_id', 'date']
+            valid_orders = ['ASC', 'DESC']
+            
+            if sort_column not in valid_columns:
+                sort_column = 'visit_record_id'
+            if sort_order not in valid_orders:
+                sort_order = 'ASC'
+            
+            # 查询所有就诊记录，根据指定的排序字段和顺序排列
+            query = f'''
                 SELECT visit_record_id, date, hospital, department, doctor, 
                        organ_system, reason, diagnosis, medication, remark,
                        created_at, updated_at
                 FROM visit_records 
-                ORDER BY visit_record_id ASC
-            ''')
+                ORDER BY {sort_column} {sort_order}
+            '''
+            cursor.execute(query)
             
             records = []
             for row in cursor.fetchall():
