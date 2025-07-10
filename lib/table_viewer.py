@@ -33,6 +33,11 @@ class TableViewer(QWidget):
         self.current_column_widths = {}
         self.search_text = ""  # 当前搜索文本
         
+        # 单列筛选相关变量
+        self.column_filter_enabled = False  # 单列筛选是否启用
+        self.column_filters = {}  # 每列的筛选文本，格式：{列索引: "筛选文本"}
+        self.filter_widgets = []  # 存储筛选输入框控件
+        
         # 排序状态管理
         self.current_sort_column = 'visit_record_id'  # 默认按记录ID排序
         self.current_sort_order = 'ASC'  # 默认升序 (ASC/DESC)
@@ -140,10 +145,17 @@ class TableViewer(QWidget):
         
         # 搜索输入框
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("搜索记录，多个关键字用空格隔开")
+        self.search_input.setPlaceholderText("全局搜索，多个关键字用空格隔开")
         self.search_input.setFixedWidth(200)
         self.search_input.textChanged.connect(self.on_search_text_changed)
         self.info_layout.addWidget(self.search_input)
+        
+        # 单列筛选按钮
+        self.column_filter_btn = QPushButton("单列筛选")
+        self.column_filter_btn.clicked.connect(self.toggle_column_filter)
+        self.column_filter_btn.setFixedWidth(80)
+        self.column_filter_btn.setCheckable(True)
+        self.info_layout.addWidget(self.column_filter_btn)
         
         self.info_layout.addStretch()
         
@@ -154,6 +166,20 @@ class TableViewer(QWidget):
         self.info_layout.addWidget(self.refresh_btn)
         
         layout.addLayout(self.info_layout)
+        
+        # 单列筛选输入框行（初始隐藏，放在表格上方）
+        self.filter_layout = QHBoxLayout()
+        self.filter_layout.setSpacing(0)  # 确保输入框之间没有间距，与表格列对齐
+        self.filter_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建筛选输入框
+        self.create_filter_widgets()
+        
+        # 添加筛选行到布局（初始隐藏）
+        self.filter_widget = QWidget()
+        self.filter_widget.setLayout(self.filter_layout)
+        self.filter_widget.setVisible(False)
+        layout.addWidget(self.filter_widget)
         
         # 表格
         self.table = QTableWidget()
@@ -316,8 +342,11 @@ class TableViewer(QWidget):
                 self.current_sort_order
             )
             
-            # 应用搜索过滤
+            # 先应用全局搜索过滤
             self.filtered_records = self.filter_records_by_search(self.all_records, self.search_text)
+            
+            # 再应用单列筛选过滤
+            self.filtered_records = self.filter_records_by_column(self.filtered_records)
             
             self.calculate_pagination()
             self.update_page_display()
@@ -566,11 +595,19 @@ class TableViewer(QWidget):
                 header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
                 if i in self.current_column_widths:
                     self.table.setColumnWidth(i, self.current_column_widths[i])
+        
+        # 如果单列筛选已启用，更新筛选输入框的宽度
+        if self.column_filter_enabled:
+            self.update_filter_widget_sizes()
     
     def on_column_width_changed(self, logical_index, old_size, new_size):
         """列宽改变时的处理函数"""
         # 保存新的列宽到history.ini
         self.save_user_column_widths()
+        
+        # 如果单列筛选已启用，更新对应筛选输入框的宽度
+        if self.column_filter_enabled and logical_index < len(self.filter_widgets):
+            self.filter_widgets[logical_index].setFixedWidth(new_size)
 
     def on_header_clicked(self, logical_index):
         """表格标题点击事件处理，实现排序功能"""
@@ -833,3 +870,153 @@ class TableViewer(QWidget):
         self.search_text = text
         self.current_page = 1  # 重置到第一页
         self.load_data()  # 重新加载数据以应用新的搜索过滤
+    
+    def create_filter_widgets(self):
+        """创建单列筛选输入框"""
+        # 清除现有的筛选控件
+        for widget in self.filter_widgets:
+            widget.deleteLater()
+        self.filter_widgets.clear()
+        
+        # 定义列标题（与init_table中的headers保持一致）
+        headers = [
+            "选择", "记录ID", "就诊日期", "医院", "科室", "医生", 
+            "器官系统", "症状事由", "诊断结果", "用药信息", "备注", "附件"
+        ]
+        
+        # 为每一列创建筛选输入框
+        for i in range(len(headers)):
+            filter_input = QLineEdit()
+            filter_input.setPlaceholderText(f"筛选{headers[i]}")
+            filter_input.textChanged.connect(lambda text, col=i: self.on_column_filter_changed(col, text))
+            
+            # 为勾选框列和附件列禁用筛选
+            if i == 0 or i == 11:  # 选择列和附件列
+                filter_input.setEnabled(False)
+                filter_input.setPlaceholderText("")
+            
+            self.filter_widgets.append(filter_input)
+            self.filter_layout.addWidget(filter_input)
+        
+        # 初始更新筛选控件大小
+        self.update_filter_widget_sizes()
+    
+    def toggle_column_filter(self):
+        """切换单列筛选的开启/关闭状态"""
+        self.column_filter_enabled = not self.column_filter_enabled
+        self.filter_widget.setVisible(self.column_filter_enabled)
+        
+        # 更新按钮状态
+        self.column_filter_btn.setChecked(self.column_filter_enabled)
+        
+        if self.column_filter_enabled:
+            # 开启时更新筛选控件大小
+            self.update_filter_widget_sizes()
+        else:
+            # 关闭时清除所有筛选条件
+            self.column_filters.clear()
+            for filter_input in self.filter_widgets:
+                filter_input.clear()
+            self.load_data()  # 重新加载数据
+    
+    def update_filter_widget_sizes(self):
+        """更新筛选输入框的宽度以匹配表格列宽"""
+        if not self.column_filter_enabled or not self.filter_widgets:
+            return
+        
+        # 清除所有间距，确保输入框紧密排列如同表格列
+        self.filter_layout.setSpacing(0)
+        
+        # 获取表格的左边框宽度
+        frame_width = self.table.frameWidth()
+        
+        # 计算准确的左边距：表格左边框 + 可能的行头部宽度（已隐藏，所以为0）
+        left_margin = frame_width
+        
+        # 设置筛选布局边距，与表格精确对齐
+        self.filter_layout.setContentsMargins(left_margin, 0, frame_width, 0)
+        
+        for i, filter_input in enumerate(self.filter_widgets):
+            column_width = self.table.columnWidth(i)
+            filter_input.setFixedWidth(column_width)
+            filter_input.setMinimumWidth(column_width)
+            filter_input.setMaximumWidth(column_width)
+            
+            # 设置输入框样式，确保无额外边距
+            filter_input.setStyleSheet("""
+                QLineEdit { 
+                    border: 1px solid #ccc; 
+                    margin: 0px; 
+                    padding: 1px 2px;
+                    border-radius: 0px;
+                    background-color: white;
+                }
+                QLineEdit:focus {
+                    border: 2px solid #0078d4;
+                }
+            """)
+    
+    def on_column_filter_changed(self, column_index: int, text: str):
+        """单列筛选文本改变时的处理函数"""
+        if text.strip():
+            self.column_filters[column_index] = text.strip()
+        else:
+            # 如果筛选文本为空，移除该列的筛选条件
+            if column_index in self.column_filters:
+                del self.column_filters[column_index]
+        
+        self.current_page = 1  # 重置到第一页
+        self.load_data()  # 重新加载数据以应用新的筛选
+    
+    def filter_records_by_column(self, records: List[Dict]) -> List[Dict]:
+        """
+        根据单列筛选条件过滤记录
+        
+        Args:
+            records: 原始记录列表
+            
+        Returns:
+            过滤后的记录列表
+        """
+        if not self.column_filters:
+            return records  # 没有筛选条件，返回所有记录
+        
+        filtered = []
+        
+        # 定义列索引与记录字段的映射关系
+        column_field_mapping = {
+            1: 'visit_record_id',
+            2: 'date',
+            3: 'hospital',
+            4: 'department',
+            5: 'doctor',
+            6: 'organ_system',
+            7: 'reason',
+            8: 'diagnosis',
+            9: 'medication',
+            10: 'remark'
+        }
+        
+        for record in records:
+            # 检查每个筛选条件
+            match_all_filters = True
+            
+            for column_index, filter_text in self.column_filters.items():
+                # 获取该列对应的字段名
+                field_name = column_field_mapping.get(column_index)
+                if not field_name:
+                    continue  # 跳过不支持筛选的列
+                
+                # 获取该字段的值
+                field_value = str(record.get(field_name, ''))
+                
+                # 使用多关键字搜索函数检查是否匹配
+                if not self.multi_keyword_search(field_value, filter_text):
+                    match_all_filters = False
+                    break
+            
+            # 只有匹配所有筛选条件的记录才会被保留
+            if match_all_filters:
+                filtered.append(record)
+        
+        return filtered
