@@ -11,6 +11,7 @@ from .attachment_dialog import AttachmentDialog
 from .config_manager import ConfigManager
 from .table_components import create_health_db_column_manager
 from .ui_components import StandardButtonBar, SmartSearchBar, PaginationBar, InfoBar
+from .export_manager import export_health_records
 import configparser
 import os
 
@@ -191,7 +192,7 @@ class TableViewer(QWidget):
         # 添加导出按钮到分页栏右侧
         self.export_btn = QPushButton("导出数据")
         self.export_btn.clicked.connect(self.export_data)
-        self.export_btn.setEnabled(False)  # 暂时禁用
+        self.export_btn.setEnabled(False)  # 初始禁用，有勾选记录时才启用
         self.pagination_bar.add_right_buttons([self.export_btn])
         
         layout.addLayout(self.pagination_bar)
@@ -398,6 +399,9 @@ class TableViewer(QWidget):
                     item.setText('')
                     item.setForeground(Qt.GlobalColor.gray)
                     item.setToolTip('')  # 空内容不显示提示
+        
+        # 更新导出按钮状态
+        self.update_export_button_state()
     
     def clear_table(self):
         """清空表格"""
@@ -431,8 +435,42 @@ class TableViewer(QWidget):
         self.load_data()
     
     def export_data(self):
-        """导出数据（预留功能）"""
-        QMessageBox.information(self, "提示", "导出功能正在开发中...") 
+        """导出数据"""
+        # 获取勾选的记录
+        checked_records = self.get_checked_records()
+        
+        if not checked_records:
+            QMessageBox.warning(self, "警告", "请先选择要导出的记录！")
+            return
+        
+        # 定义字段标题（对应表头但去掉选择列和附件列）
+        field_headers = [
+            "记录ID", "就诊日期", "医院", "科室", "医生", 
+            "器官系统", "症状事由", "诊断结果", "用药信息", "备注"
+        ]
+        
+        # 调用导出功能
+        success = export_health_records(
+            records=checked_records,
+            field_headers=field_headers,
+            parent_widget=self,
+            user_name=self.current_user,
+            data_storage=self.data_storage
+        )
+        
+        # 导出成功后的处理由export_manager内部完成，不需要额外弹窗
+    
+    def update_export_button_state(self):
+        """更新导出按钮的启用状态"""
+        checked_count = self.get_checked_rows_count()
+        self.export_btn.setEnabled(checked_count > 0)
+    
+    def clear_all_checkboxes(self):
+        """清除所有勾选框的选中状态"""
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(False)
     
     def reset_to_default_column_widths(self):
         """重置列宽为默认设置"""
@@ -522,6 +560,9 @@ class TableViewer(QWidget):
                 self.delete_visit_btn.setEnabled(True)
             else:
                 self.delete_visit_btn.setEnabled(False)
+        
+        # 更新导出按钮状态
+        self.update_export_button_state()
 
     def get_checked_rows_count(self):
         """获取勾选的行数"""
