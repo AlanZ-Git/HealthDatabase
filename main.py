@@ -99,7 +99,7 @@ class VisitInputWidget(QWidget):
                     self.on_user_changed()
 
     def load_window_size(self):
-        """加载窗口大小设置"""
+        """加载窗口大小和位置设置"""
         config = configparser.ConfigParser()
         history_file = 'history.ini'
         
@@ -110,7 +110,10 @@ class VisitInputWidget(QWidget):
                 try:
                     width = config.getint('Window', 'width')
                     height = config.getint('Window', 'height')
+                    x = config.getint('Window', 'x')
+                    y = config.getint('Window', 'y')
                     self.resize(width, height)
+                    self.move(x, y)
                     return  # 成功加载用户设置，直接返回
                 except:
                     pass
@@ -124,15 +127,28 @@ class VisitInputWidget(QWidget):
                     width = config.getint('Window', 'width')
                     height = config.getint('Window', 'height')
                     self.resize(width, height)
+                    self.center_on_screen()  # 使用默认设置时居中显示
                     return  # 成功加载默认设置，直接返回
                 except:
                     pass
         
-        # 如果都没有找到设置，使用硬编码默认大小
+        # 如果都没有找到设置，使用硬编码默认大小并居中显示
         self.resize(1200, 800)
+        self.center_on_screen()
+
+    def center_on_screen(self):
+        """将窗口居中显示在屏幕上"""
+        screen = QApplication.primaryScreen().geometry()
+        window_geometry = self.geometry()
+        
+        # 计算居中位置
+        x = (screen.width() - window_geometry.width()) // 2
+        y = (screen.height() - window_geometry.height()) // 2
+        
+        self.move(x, y)
 
     def save_window_size(self):
-        """保存当前窗口大小到history.ini"""
+        """保存当前窗口大小和位置到history.ini"""
         config = configparser.ConfigParser()
         history_file = 'history.ini'
         
@@ -144,9 +160,11 @@ class VisitInputWidget(QWidget):
         if not config.has_section('Window'):
             config.add_section('Window')
         
-        # 保存窗口大小
+        # 保存窗口大小和位置
         config.set('Window', 'width', str(self.width()))
         config.set('Window', 'height', str(self.height()))
+        config.set('Window', 'x', str(self.x()))
+        config.set('Window', 'y', str(self.y()))
         
         # 写入文件
         with open(history_file, 'w', encoding='utf-8') as f:
