@@ -7,32 +7,55 @@ from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent
 import os
 import subprocess
 import platform
+from typing import Optional
 
 from .data_storage import DataStorage
+from .ui_components import BaseDialog, StandardButtonBar, CheckableListWidget
 
 
-class AttachmentDialog(QDialog):
+class AttachmentDialog(BaseDialog):
     """附件管理对话框"""
     
     # 定义信号，当附件有变化时发出
     attachments_changed = pyqtSignal()
     
-    def __init__(self, user_name: str, visit_record_id: int, parent=None):
-        super().__init__(parent)
+    def __init__(self, user_name: str, visit_record_id: int, parent=None, data_storage: Optional[DataStorage] = None):
+        super().__init__(f'就诊记录 #{visit_record_id} 的附件', parent, enable_drag_drop=True)
         self.user_name = user_name
         self.visit_record_id = visit_record_id
-        self.data_storage = DataStorage()
+        self.data_storage = data_storage or DataStorage()  # 使用传入的依赖或创建新实例
         
-        self.setWindowTitle(f'就诊记录 #{visit_record_id} 的附件')
-        self.setModal(True)
-        
-        # 启用拖拽功能
-        self.setAcceptDrops(True)
+        # 设置拖拽处理函数
+        self.enable_drag_drop(file_handler=self.handle_dropped_files)
         
         self.init_ui()
         self.load_attachments()
         
         self.resize(600, 400)
+
+    def handle_dropped_files(self, file_paths):
+        """处理拖拽的文件"""
+        if file_paths:
+            # 弹窗询问是否导入附件
+            reply = QMessageBox.question(
+                self,
+                '确认导入',
+                f'是否将{len(file_paths)}个文件导入附件？',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                success_count = 0
+                for file_path in file_paths:
+                    if self.data_storage.add_attachment_to_visit(self.user_name, self.visit_record_id, file_path):
+                        success_count += 1
+                
+                if success_count > 0:
+                    self.load_attachments()  # 重新加载列表
+                    self.attachments_changed.emit()  # 发出信号
+                else:
+                    QMessageBox.warning(self, "失败", "附件添加失败")
 
     def init_ui(self):
         """初始化界面"""
@@ -43,95 +66,36 @@ class AttachmentDialog(QDialog):
         title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(title_label)
         
-        # 附件列表
-        self.attachment_list = QListWidget()
-        self.attachment_list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #c0c0c0;
-                background-color: #ffffff;
-                padding: 5px;
-            }
-            QListWidget::item {
-                padding: 5px;
-                border-bottom: 1px solid #e0e0e0;
-            }
-            QListWidget::item:selected {
-                background-color: #3399ff;
-                color: white;
-            }
-        """)
+        # 使用新的CheckableListWidget替代原有的附件列表
+        self.attachment_list = CheckableListWidget("当前就诊记录暂无附件")
         # 双击事件
         self.attachment_list.doubleClicked.connect(self.on_attachment_double_clicked)
-        # 单击事件 - 用于切换勾选状态
-        self.attachment_list.itemClicked.connect(self.on_attachment_item_clicked)
         layout.addWidget(self.attachment_list)
         
-        # 按钮区域
-        button_layout = QHBoxLayout()
+        # 使用StandardButtonBar创建按钮布局
+        button_bar = StandardButtonBar()
         
+        # 左侧按钮组
         self.add_btn = QPushButton('添加附件')
         self.add_btn.clicked.connect(self.add_attachment)
-        button_layout.addWidget(self.add_btn)
         
         self.remove_btn = QPushButton('删除选中')
         self.remove_btn.clicked.connect(self.remove_selected_attachments)
-        button_layout.addWidget(self.remove_btn)
         
         self.view_btn = QPushButton('查看附件')
         self.view_btn.clicked.connect(self.view_selected_attachment)
-        button_layout.addWidget(self.view_btn)
         
-        button_layout.addStretch()
+        button_bar.add_left_buttons([self.add_btn, self.remove_btn, self.view_btn])
         
+        # 右侧按钮组
         self.close_btn = QPushButton('关闭')
         self.close_btn.clicked.connect(self.close)
-        button_layout.addWidget(self.close_btn)
         
-        layout.addLayout(button_layout)
+        button_bar.add_right_buttons([self.close_btn])
+        
+        layout.addLayout(button_bar)
         
         self.setLayout(layout)
-
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        """拖拽进入事件"""
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event: QDropEvent):
-        """拖拽放下事件"""
-        if event.mimeData().hasUrls():
-            file_paths = []
-            for url in event.mimeData().urls():
-                file_path = url.toLocalFile()
-                if os.path.isfile(file_path):
-                    file_paths.append(file_path)
-            
-            if file_paths:
-                # 弹窗询问是否导入附件
-                reply = QMessageBox.question(
-                    self,
-                    '确认导入',
-                    f'是否将{len(file_paths)}个文件导入附件？',
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes
-                )
-                
-                if reply == QMessageBox.StandardButton.Yes:
-                    success_count = 0
-                    for file_path in file_paths:
-                        if self.data_storage.add_attachment_to_visit(self.user_name, self.visit_record_id, file_path):
-                            success_count += 1
-                    
-                    if success_count > 0:
-                        self.load_attachments()  # 重新加载列表
-                        self.attachments_changed.emit()  # 发出信号
-                    else:
-                        QMessageBox.warning(self, "失败", "附件添加失败")
-            
-            event.acceptProposedAction()
-        else:
-            event.ignore()
 
     def load_attachments(self):
         """加载附件列表"""
@@ -140,24 +104,15 @@ class AttachmentDialog(QDialog):
         attachments = self.data_storage.get_visit_attachments(self.user_name, self.visit_record_id)
         
         if not attachments:
-            # 显示空状态
-            placeholder_item = QListWidgetItem("当前就诊记录暂无附件")
-            placeholder_item.setFlags(Qt.ItemFlag.NoItemFlags)
-            placeholder_item.setForeground(Qt.GlobalColor.gray)
-            self.attachment_list.addItem(placeholder_item)
+            self.attachment_list.update_placeholder()
             return
         
         for attachment in attachments:
-            item = QListWidgetItem()
-            checkbox = QCheckBox()
-            checkbox.setChecked(False)
-            checkbox.setText(f"{attachment['file_name']}")
-            
-            # 将附件信息存储在item中
-            item.setData(Qt.ItemDataRole.UserRole, attachment)
-            
-            self.attachment_list.addItem(item)
-            self.attachment_list.setItemWidget(item, checkbox)
+            self.attachment_list.add_checkable_item(
+                text=f"{attachment['file_name']}",
+                data=attachment,
+                checked=False
+            )
 
     def add_attachment(self):
         """添加附件"""
@@ -178,16 +133,10 @@ class AttachmentDialog(QDialog):
 
     def remove_selected_attachments(self):
         """删除选中的附件"""
-        selected_attachments = []
+        selected_attachments = self.attachment_list.get_checked_items()
         
-        for i in range(self.attachment_list.count()):
-            item = self.attachment_list.item(i)
-            checkbox = self.attachment_list.itemWidget(item)
-            
-            if checkbox and checkbox.isChecked():
-                attachment_data = item.data(Qt.ItemDataRole.UserRole)
-                if attachment_data:  # 确保不是占位符项目
-                    selected_attachments.append(attachment_data)
+        # 过滤掉None值（占位符项目）
+        selected_attachments = [att for att in selected_attachments if att is not None]
         
         if not selected_attachments:
             QMessageBox.information(self, "提示", "请先选择要删除的附件")
@@ -240,16 +189,7 @@ class AttachmentDialog(QDialog):
         
         self.open_file(attachment_data)
     
-    def on_attachment_item_clicked(self, item):
-        """单击附件条目时的处理 - 切换勾选状态"""
-        if not item:
-            return
-        
-        # 获取该条目的checkbox
-        checkbox = self.attachment_list.itemWidget(item)
-        if checkbox and isinstance(checkbox, QCheckBox):
-            # 切换勾选状态
-            checkbox.setChecked(not checkbox.isChecked())
+
     
     def replace_attachment(self, attachment_data: dict):
         """替换现有附件"""
@@ -273,29 +213,20 @@ class AttachmentDialog(QDialog):
         file_path = attachment_data['file_path']
         
         if not os.path.exists(file_path):
-            # 文件不存在时，弹出包含三个选项的对话框
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("文件不存在")
-            msg_box.setText(f"文件不存在：{file_path}")
-            msg_box.setInformativeText("请选择要执行的操作：")
+            from .ui_components import FileNotFoundDialog
             
-            # 添加自定义按钮
-            delete_btn = msg_box.addButton("删除记录", QMessageBox.ButtonRole.ActionRole)
-            add_btn = msg_box.addButton("添加附件", QMessageBox.ButtonRole.ActionRole)  
-            ignore_btn = msg_box.addButton("忽略", QMessageBox.ButtonRole.RejectRole)
-            
-            msg_box.setDefaultButton(ignore_btn)
-            msg_box.exec()
+            # 使用公共对话框处理文件不存在的情况
+            choice = FileNotFoundDialog.show_dialog(self, file_path)
             
             # 根据用户选择执行相应操作
-            if msg_box.clickedButton() == delete_btn:
+            if choice == FileNotFoundDialog.DELETE_RECORD:
                 # 删除附件记录
                 if self.data_storage.delete_attachment(self.user_name, attachment_data['attachment_id']):
                     self.load_attachments()  # 重新加载列表
                     self.attachments_changed.emit()  # 发出信号
                 else:
                     QMessageBox.warning(self, "失败", "删除附件记录失败")
-            elif msg_box.clickedButton() == add_btn:
+            elif choice == FileNotFoundDialog.REPLACE_ATTACHMENT:
                 # 替换现有附件
                 self.replace_attachment(attachment_data)
             # 如果是忽略，则什么都不做

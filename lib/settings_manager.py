@@ -3,14 +3,14 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QMessageBox, QSlider, QFrame
 )
 from PyQt6.QtCore import Qt
-import configparser
-import os
+from .config_manager import ConfigManager
 import sys
 
 class SettingsManager(QWidget):
-    def __init__(self, table_viewer=None):
+    def __init__(self, table_viewer=None, config_manager=None):
         super().__init__()
         self.table_viewer = table_viewer
+        self.config_manager = config_manager or ConfigManager()
         self.setWindowTitle('设置管理')
         self.setFixedSize(400, 250)  # 增加高度以容纳新按钮
         self.init_ui()
@@ -86,18 +86,7 @@ class SettingsManager(QWidget):
 
     def load_current_settings(self):
         """加载当前设置"""
-        config = configparser.ConfigParser()
-        settings_file = 'settings.ini'
-        
-        if os.path.exists(settings_file):
-            config.read(settings_file, encoding='utf-8')
-            try:
-                font_scale = float(config.get('Display', 'font_scale', fallback='1.2'))
-            except (ValueError, configparser.Error):
-                font_scale = 1.2
-        else:
-            font_scale = 1.2
-        
+        font_scale = self.config_manager.get_font_scale()
         self.font_scale_edit.setText(str(font_scale))
         self.font_scale_slider.setValue(int(font_scale * 100))
         self.update_current_value_label()
@@ -134,12 +123,7 @@ class SettingsManager(QWidget):
                 QMessageBox.warning(self, '警告', '字体大小倍数必须在0.5到2.0之间！')
                 return
             
-            config = configparser.ConfigParser()
-            config['Display'] = {'font_scale': str(font_scale)}
-            
-            with open('settings.ini', 'w', encoding='utf-8') as f:
-                config.write(f)
-            
+            self.config_manager.save_font_scale(font_scale)
             QMessageBox.information(self, '成功', '设置已保存！重启应用程序后生效。')
             
         except ValueError:

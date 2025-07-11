@@ -8,6 +8,9 @@ from PyQt6.QtGui import QFont
 from typing import List, Dict, Optional
 from .data_storage import DataStorage
 from .attachment_dialog import AttachmentDialog
+from .config_manager import ConfigManager
+from .table_components import create_health_db_column_manager
+from .ui_components import StandardButtonBar, SmartSearchBar, PaginationBar, InfoBar
 import configparser
 import os
 
@@ -19,9 +22,10 @@ class TableViewer(QWidget):
     data_updated = pyqtSignal()  # 数据更新信号
     visit_input_requested = pyqtSignal()  # 录入就诊信息请求信号
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, data_storage: Optional[DataStorage] = None, config_manager: Optional[ConfigManager] = None):
         super().__init__(parent)
-        self.data_storage = DataStorage()
+        self.config_manager = config_manager or ConfigManager()
+        self.data_storage = data_storage or DataStorage()  # 使用传入的依赖或创建新实例
         self.current_user = None
         self.records = []
         self.all_records = []  # 存储所有记录，用于分页
@@ -31,12 +35,7 @@ class TableViewer(QWidget):
         self.total_pages = 1  # 总页数
         self.search_text = ""  # 当前搜索文本
         
-        # 列宽度管理
-        self.fixed_pixel_columns = [0, 1, 2, 5, 6, 11]  # 固定像素列：勾选框、记录ID、就诊日期、医生、器官系统、附件
-        self.proportional_columns = [3, 4, 7, 8, 9, 10]  # 比例分配列：医院、科室、症状事由、诊断结果、用药信息、备注
-        self.fixed_column_widths = {}  # 固定列的像素宽度
-        self.proportional_column_widths = {}  # 比例列的比例值（0-1之间）
-        self.is_adjusting_columns = False  # 标记是否正在调整列宽，避免递归
+        # 列宽管理器将在init_table方法中初始化
         
         # 单列筛选相关变量
         self.column_filter_enabled = False  # 单列筛选是否启用
@@ -48,7 +47,6 @@ class TableViewer(QWidget):
         self.current_sort_order = 'ASC'  # 默认升序 (ASC/DESC)
         self.sortable_columns = {1: 'visit_record_id', 2: 'date'}  # 可排序的列：列索引->数据库字段名
         
-        self.load_column_width_settings()
         self.load_pagination_settings()
         self.init_ui()
 
@@ -126,49 +124,43 @@ class TableViewer(QWidget):
         """初始化界面"""
         layout = QVBoxLayout()
         
-        # 顶部信息栏
-        self.info_layout = QHBoxLayout()
+        # 使用StandardButtonBar创建顶部工具栏
+        self.info_layout = StandardButtonBar()
         
-        # 录入就诊信息按钮（移动到这里，放在最左边）
+        # 左侧按钮组
         self.visit_input_btn = QPushButton('录入就诊信息')
         self.visit_input_btn.clicked.connect(self.on_visit_input_clicked)
         self.visit_input_btn.setFixedWidth(100)
-        self.info_layout.addWidget(self.visit_input_btn)
         
-        # 修改就诊信息按钮（位置在录入按钮和记录数量之间）
         self.edit_visit_btn = QPushButton('修改就诊信息')
         self.edit_visit_btn.clicked.connect(self.on_edit_visit_clicked)
         self.edit_visit_btn.setFixedWidth(100)
         self.edit_visit_btn.setEnabled(False)  # 初始状态禁用
-        self.info_layout.addWidget(self.edit_visit_btn)
         
-        # 移除原来的用户标签，因为主界面已经显示了
+        self.delete_visit_btn = QPushButton('删除就诊记录')
+        self.delete_visit_btn.clicked.connect(self.on_delete_visit_clicked)
+        self.delete_visit_btn.setFixedWidth(100)
+        self.delete_visit_btn.setEnabled(False)  # 初始状态禁用
+        
+        self.info_layout.add_left_buttons([self.visit_input_btn, self.edit_visit_btn, self.delete_visit_btn])
+        
+        # 中间区域 - 记录计数
         self.record_count_label = QLabel("记录数量：0")
         self.record_count_label.setStyleSheet("color: #666;")
-        
         self.info_layout.addWidget(self.record_count_label)
         
-        # 搜索输入框
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("全局搜索，多个关键字用空格隔开")
-        self.search_input.setFixedWidth(200)
-        self.search_input.textChanged.connect(self.on_search_text_changed)
-        self.info_layout.addWidget(self.search_input)
+        # 使用SmartSearchBar创建搜索栏
+        self.search_bar = SmartSearchBar(show_filter_toggle=True, enable_auto_complete=False)
+        self.search_bar.search_changed.connect(self.on_search_text_changed)
+        self.search_bar.filter_toggled.connect(self.on_filter_toggled)
+        self.info_layout.addWidget(self.search_bar)
         
-        # 单列筛选按钮
-        self.column_filter_btn = QPushButton("单列筛选")
-        self.column_filter_btn.clicked.connect(self.toggle_column_filter)
-        self.column_filter_btn.setFixedWidth(80)
-        self.column_filter_btn.setCheckable(True)
-        self.info_layout.addWidget(self.column_filter_btn)
-        
-        self.info_layout.addStretch()
-        
-        # 刷新按钮
+        # 右侧按钮组
         self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self.refresh_data)
         self.refresh_btn.setFixedWidth(80)
-        self.info_layout.addWidget(self.refresh_btn)
+        
+        self.info_layout.add_right_buttons([self.refresh_btn])
         
         layout.addLayout(self.info_layout)
         
@@ -191,62 +183,18 @@ class TableViewer(QWidget):
         self.init_table()
         layout.addWidget(self.table)
         
-        # 底部操作栏
-        self.button_layout = QHBoxLayout()
+        # 使用PaginationBar创建底部分页栏
+        self.pagination_bar = PaginationBar(initial_page_size=self.records_per_page)
+        self.pagination_bar.page_changed.connect(self.on_page_changed)
+        self.pagination_bar.page_size_changed.connect(self.on_page_size_changed)
         
-        # 分页控件（从左边开始）
-        # 每页记录数设置
-        self.page_size_label = QLabel("每页")
-        self.button_layout.addWidget(self.page_size_label)
-        
-        self.page_size_spinbox = QSpinBox()
-        self.page_size_spinbox.setMinimum(1)
-        self.page_size_spinbox.setMaximum(1000)
-        self.page_size_spinbox.setValue(self.records_per_page)
-        self.page_size_spinbox.valueChanged.connect(self.on_page_size_changed)
-        self.page_size_spinbox.setFixedWidth(60)
-        self.button_layout.addWidget(self.page_size_spinbox)
-        
-        self.page_size_label2 = QLabel("条记录")
-        self.button_layout.addWidget(self.page_size_label2)
-        
-        # 添加间距
-        self.button_layout.addSpacing(20)
-        
-        # 分页按钮
-        self.first_page_btn = QPushButton("首页")
-        self.first_page_btn.clicked.connect(self.go_to_first_page)
-        self.first_page_btn.setFixedWidth(60)
-        self.button_layout.addWidget(self.first_page_btn)
-        
-        self.prev_page_btn = QPushButton("上一页")
-        self.prev_page_btn.clicked.connect(self.go_to_prev_page)
-        self.prev_page_btn.setFixedWidth(70)
-        self.button_layout.addWidget(self.prev_page_btn)
-        
-        self.next_page_btn = QPushButton("下一页")
-        self.next_page_btn.clicked.connect(self.go_to_next_page)
-        self.next_page_btn.setFixedWidth(70)
-        self.button_layout.addWidget(self.next_page_btn)
-        
-        self.last_page_btn = QPushButton("末页")
-        self.last_page_btn.clicked.connect(self.go_to_last_page)
-        self.last_page_btn.setFixedWidth(60)
-        self.button_layout.addWidget(self.last_page_btn)
-        
-        # 页码信息
-        self.page_info_label = QLabel("第1页 / 共1页")
-        self.button_layout.addWidget(self.page_info_label)
-        
-        self.button_layout.addStretch()
-        
-        # 导出按钮（预留）
+        # 添加导出按钮到分页栏右侧
         self.export_btn = QPushButton("导出数据")
         self.export_btn.clicked.connect(self.export_data)
         self.export_btn.setEnabled(False)  # 暂时禁用
-        self.button_layout.addWidget(self.export_btn)
+        self.pagination_bar.add_right_buttons([self.export_btn])
         
-        layout.addLayout(self.button_layout)
+        layout.addLayout(self.pagination_bar)
         
         self.setLayout(layout)
     
@@ -266,6 +214,7 @@ class TableViewer(QWidget):
         # 设置表格属性
         self.table.setAlternatingRowColors(True)  # 交替行颜色
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)  # 选择整行
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)  # 单行选择
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)  # 不可编辑
         self.table.verticalHeader().setVisible(False)  # 隐藏左侧行号
         
@@ -293,15 +242,19 @@ class TableViewer(QWidget):
         h_scrollbar.setPageStep(10)   # 设置页滚动像素数
         
         v_scrollbar = self.table.verticalScrollBar()
-        v_scrollbar.setSingleStep(1)  # 设置垂直滚动单步为1行
+        v_scrollbar.setSingleStep(1)
         v_scrollbar.setPageStep(10)   # 设置垂直滚动页步为10行
         
-        # 应用列宽设置
-        self.apply_column_widths()
+        # 初始化列宽管理器
+        self.column_width_manager = create_health_db_column_manager(self.table, self.config_manager)
+        self.column_width_manager.apply_widths()
         
         # 连接列宽变化信号
         header = self.table.horizontalHeader()
-        header.sectionResized.connect(self.on_column_width_changed)
+        header.sectionResized.connect(self.column_width_manager.on_column_width_changed)
+        
+        # 连接列宽管理器的信号来更新筛选控件
+        self.column_width_manager.column_width_changed.connect(self.on_column_width_changed_for_filter)
         
         # 连接标题点击信号，支持排序
         header.sectionClicked.connect(self.on_header_clicked)
@@ -311,6 +264,9 @@ class TableViewer(QWidget):
         
         # 连接单击信号
         self.table.clicked.connect(self.on_table_clicked)
+        
+        # 连接选择变化信号，用于支持行高亮时启用修改按钮
+        self.table.selectionModel().selectionChanged.connect(self.on_selection_changed)
     
     def on_visit_input_clicked(self):
         """录入就诊信息按钮点击事件"""
@@ -379,17 +335,8 @@ class TableViewer(QWidget):
         else:
             self.record_count_label.setText(f"记录数量：{len(self.all_records)}")
         
-        # 更新页码信息
-        if self.total_pages > 0:
-            self.page_info_label.setText(f"第{self.current_page}页 / 共{self.total_pages}页")
-        else:
-            self.page_info_label.setText("第1页 / 共1页")
-        
-        # 更新按钮状态
-        self.first_page_btn.setEnabled(self.current_page > 1)
-        self.prev_page_btn.setEnabled(self.current_page > 1)
-        self.next_page_btn.setEnabled(self.current_page < self.total_pages)
-        self.last_page_btn.setEnabled(self.current_page < self.total_pages)
+        # 更新分页栏显示
+        self.pagination_bar.update_pagination_info(self.current_page, self.total_pages)
     
     def populate_table(self):
         """填充表格数据"""
@@ -398,7 +345,9 @@ class TableViewer(QWidget):
         for row, record in enumerate(self.records):
             # 第一列：勾选框
             checkbox = QCheckBox()
-            checkbox.setStyleSheet("QCheckBox { margin: 5px; }")
+            # 导入统一的勾选框样式
+            from .ui_components import CHECKBOX_HIGHLIGHT_STYLE
+            checkbox.setStyleSheet(CHECKBOX_HIGHLIGHT_STYLE + "QCheckBox { margin: 5px; }")
             checkbox.stateChanged.connect(self.on_checkbox_state_changed)
             self.table.setCellWidget(row, 0, checkbox)
             
@@ -459,242 +408,42 @@ class TableViewer(QWidget):
         self.current_page = 1
         self.total_pages = 1
         self.record_count_label.setText("记录数量：0")
-        self.page_info_label.setText("第1页 / 共1页")
+        self.pagination_bar.update_pagination_info(1, 1)
         
         # 更新按钮状态
-        self.first_page_btn.setEnabled(False)
-        self.prev_page_btn.setEnabled(False)
-        self.next_page_btn.setEnabled(False)
-        self.last_page_btn.setEnabled(False)
+        self.pagination_bar.update_button_states()
     
     def refresh_data(self):
-        """刷新数据"""
+        """刷新数据并清除搜索和筛选条件"""
+        # 清除全局搜索条件
+        self.search_text = ""
+        self.search_bar.clear_search()
+        
+        # 清除单列筛选条件
+        self.column_filters.clear()
+        for filter_input in self.filter_widgets:
+            filter_input.clear()
+        
+        # 重置到第一页
+        self.current_page = 1
+        
+        # 重新加载数据
         self.load_data()
     
     def export_data(self):
         """导出数据（预留功能）"""
         QMessageBox.information(self, "提示", "导出功能正在开发中...") 
     
-    def load_column_width_settings(self):
-        """加载列宽设置"""
-        # 加载默认设置
-        self.load_default_column_widths()
-        
-        # 加载用户自定义设置（如果存在）
-        self.load_user_column_widths()
-    
-    def load_default_column_widths(self):
-        """从settings.ini加载默认列宽设置"""
-        config = configparser.ConfigParser()
-        settings_file = 'settings.ini'
-        
-        # 设置默认值
-        default_fixed_widths = {
-            0: 50, 1: 60, 2: 100, 5: 80, 6: 100, 11: 80
-        }
-        default_proportional_widths = {
-            3: 0.2, 4: 0.15, 7: 0.25, 8: 0.25, 9: 0.15, 10: 0.15  # 比例总和为1.15，会自动归一化
-        }
-        
-        if os.path.exists(settings_file):
-            config.read(settings_file, encoding='utf-8')
-            
-            # 读取固定像素列设置
-            if config.has_section('FixedColumnWidths'):
-                for col in self.fixed_pixel_columns:
-                    key = f'column_{col}'
-                    if config.has_option('FixedColumnWidths', key):
-                        try:
-                            default_fixed_widths[col] = int(config.get('FixedColumnWidths', key))
-                        except ValueError:
-                            pass
-            
-            # 读取比例列设置
-            if config.has_section('ProportionalColumnWidths'):
-                for col in self.proportional_columns:
-                    key = f'column_{col}'
-                    if config.has_option('ProportionalColumnWidths', key):
-                        try:
-                            default_proportional_widths[col] = float(config.get('ProportionalColumnWidths', key))
-                        except ValueError:
-                            pass
-        
-        # 设置默认宽度
-        self.fixed_column_widths = default_fixed_widths.copy()
-        
-        # 归一化比例值，确保总和为1
-        total_proportion = sum(default_proportional_widths.values())
-        if total_proportion > 0:
-            self.proportional_column_widths = {
-                col: proportion / total_proportion 
-                for col, proportion in default_proportional_widths.items()
-            }
-        else:
-            # 如果没有比例设置，平均分配
-            self.proportional_column_widths = {
-                col: 1.0 / len(self.proportional_columns) 
-                for col in self.proportional_columns
-            }
-    
-    def load_user_column_widths(self):
-        """从history.ini加载用户自定义列宽设置"""
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-            
-            # 读取固定像素列的用户设置
-            if config.has_section('FixedColumnWidths'):
-                for col in self.fixed_pixel_columns:
-                    key = f'column_{col}'
-                    if config.has_option('FixedColumnWidths', key):
-                        try:
-                            self.fixed_column_widths[col] = int(config.get('FixedColumnWidths', key))
-                        except ValueError:
-                            pass
-            
-            # 读取比例列的用户设置
-            if config.has_section('ProportionalColumnWidths'):
-                user_proportions = {}
-                for col in self.proportional_columns:
-                    key = f'column_{col}'
-                    if config.has_option('ProportionalColumnWidths', key):
-                        try:
-                            user_proportions[col] = float(config.get('ProportionalColumnWidths', key))
-                        except ValueError:
-                            pass
-                
-                # 如果有用户设置的比例，归一化后使用
-                if user_proportions:
-                    total_proportion = sum(user_proportions.values())
-                    if total_proportion > 0:
-                        self.proportional_column_widths.update({
-                            col: proportion / total_proportion 
-                            for col, proportion in user_proportions.items()
-                        })
-    
-    def save_user_column_widths(self):
-        """保存用户自定义列宽设置到history.ini"""
-        if self.is_adjusting_columns:
-            return  # 如果正在批量调整列宽，不保存
-            
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        # 读取现有的history.ini内容
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-        
-        # 确保节存在
-        if not config.has_section('FixedColumnWidths'):
-            config.add_section('FixedColumnWidths')
-        if not config.has_section('ProportionalColumnWidths'):
-            config.add_section('ProportionalColumnWidths')
-        
-        # 保存固定列宽度
-        for col in self.fixed_pixel_columns:
-            width = self.table.columnWidth(col)
-            config.set('FixedColumnWidths', f'column_{col}', str(width))
-            self.fixed_column_widths[col] = width
-        
-        # 计算并保存比例列的比例
-        total_proportional_width = sum(
-            self.table.columnWidth(col) for col in self.proportional_columns
-        )
-        
-        if total_proportional_width > 0:
-            for col in self.proportional_columns:
-                proportion = self.table.columnWidth(col) / total_proportional_width
-                config.set('ProportionalColumnWidths', f'column_{col}', str(proportion))
-                self.proportional_column_widths[col] = proportion
-        
-        # 写入文件
-        with open(history_file, 'w', encoding='utf-8') as f:
-            config.write(f)
-    
     def reset_to_default_column_widths(self):
         """重置列宽为默认设置"""
-        # 删除history.ini中的列宽设置
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-            if config.has_section('FixedColumnWidths'):
-                config.remove_section('FixedColumnWidths')
-            if config.has_section('ProportionalColumnWidths'):
-                config.remove_section('ProportionalColumnWidths')
-            # 保留其他部分，只删除列宽设置
-            with open(history_file, 'w', encoding='utf-8') as f:
-                config.write(f)
-        
-        # 重新加载设置
-        self.load_column_width_settings()
-        
-        # 应用默认列宽
-        self.apply_column_widths()
+        if hasattr(self, 'column_width_manager'):
+            self.column_width_manager.reset_to_default_column_widths()
+            # 如果单列筛选已启用，更新筛选输入框的宽度
+            if self.column_filter_enabled:
+                self.update_filter_widget_sizes()
     
-    def calculate_proportional_widths(self):
-        """计算比例列的实际像素宽度"""
-        # 获取表格总宽度
-        table_width = self.table.width()
-        
-        # 减去固定列的宽度
-        fixed_total_width = sum(self.fixed_column_widths.values())
-        
-        # 减去滚动条宽度（大约16-20像素）
-        scrollbar_width = 20
-        
-        # 可用于比例分配的宽度
-        available_width = max(200, table_width - fixed_total_width - scrollbar_width)
-        
-        # 计算各比例列的实际宽度
-        proportional_widths = {}
-        for col in self.proportional_columns:
-            proportion = self.proportional_column_widths.get(col, 1.0 / len(self.proportional_columns))
-            proportional_widths[col] = max(50, int(available_width * proportion))  # 最小宽度50像素
-        
-        return proportional_widths
-    
-    def apply_column_widths(self):
-        """应用列宽设置到表格"""
-        if not hasattr(self.table, 'horizontalHeader'):
-            return
-            
-        self.is_adjusting_columns = True  # 标记正在调整列宽
-        
-        header = self.table.horizontalHeader()
-        
-        # 计算比例列的实际宽度
-        proportional_widths = self.calculate_proportional_widths()
-        
-        # 设置所有列为可交互模式（允许拖拽）
-        for i in range(12):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
-        
-        # 设置固定列宽度
-        for col, width in self.fixed_column_widths.items():
-            self.table.setColumnWidth(col, width)
-        
-        # 设置比例列宽度
-        for col, width in proportional_widths.items():
-            self.table.setColumnWidth(col, width)
-        
-        self.is_adjusting_columns = False  # 结束调整标记
-        
-        # 如果单列筛选已启用，更新筛选输入框的宽度
-        if self.column_filter_enabled:
-            self.update_filter_widget_sizes()
-    
-    def on_column_width_changed(self, logical_index, old_size, new_size):
-        """列宽改变时的处理函数"""
-        if self.is_adjusting_columns:
-            return  # 如果正在批量调整，不处理
-            
-        # 保存新的列宽到history.ini
-        self.save_user_column_widths()
-        
+    def on_column_width_changed_for_filter(self, logical_index: int, old_size: int, new_size: int):
+        """列宽改变时更新筛选控件的宽度"""
         # 如果单列筛选已启用，更新对应筛选输入框的宽度
         if self.column_filter_enabled and logical_index < len(self.filter_widgets):
             self.filter_widgets[logical_index].setFixedWidth(new_size)
@@ -703,8 +452,11 @@ class TableViewer(QWidget):
         """窗口大小改变事件"""
         super().resizeEvent(event)
         # 当窗口大小改变时，重新计算比例列的宽度
-        if hasattr(self, 'table') and self.table is not None:
-            self.apply_column_widths()
+        if hasattr(self, 'column_width_manager'):
+            self.column_width_manager.handle_resize_event()
+            # 如果单列筛选已启用，更新筛选输入框的宽度
+            if self.column_filter_enabled:
+                self.update_filter_widget_sizes()
 
     def on_header_clicked(self, logical_index):
         """表格标题点击事件处理，实现排序功能"""
@@ -760,11 +512,16 @@ class TableViewer(QWidget):
         """勾选框状态改变时的处理函数"""
         checked_count = self.get_checked_rows_count()
         
-        # 如果选中了一行，启用修改按钮；如果选中超过一行或没有选中，禁用修改按钮
-        if checked_count == 1:
-            self.edit_visit_btn.setEnabled(True)
+        # 删除按钮：勾选任意数量的记录时都启用（修改按钮由行高亮控制）
+        if checked_count > 0:
+            self.delete_visit_btn.setEnabled(True)
         else:
-            self.edit_visit_btn.setEnabled(False)
+            # 如果没有勾选记录，检查是否有高亮行来决定删除按钮状态
+            selected_rows = self.table.selectionModel().selectedRows()
+            if selected_rows:
+                self.delete_visit_btn.setEnabled(True)
+            else:
+                self.delete_visit_btn.setEnabled(False)
 
     def get_checked_rows_count(self):
         """获取勾选的行数"""
@@ -793,19 +550,50 @@ class TableViewer(QWidget):
         
         return None
 
+    def get_selected_record(self):
+        """获取当前选中（高亮）的记录数据，优先返回高亮行，如果没有高亮则返回勾选的行"""
+        # 首先检查是否有高亮选择的行
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            row = selected_rows[0].row()
+            if 0 <= row < len(self.records):
+                return self.records[row]
+        
+        # 如果没有高亮行，则回退到勾选的记录
+        return self.get_checked_record()
+
+    def get_checked_records(self) -> List[Dict]:
+        """获取当前勾选的所有记录数据"""
+        checked_rows = []
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                checked_rows.append(self.records[row])
+        return checked_rows
+
+    def get_selected_records(self) -> List[Dict]:
+        """获取当前选中的所有记录数据（包括勾选的和高亮的）"""
+        # 首先获取所有勾选的记录
+        selected_records = self.get_checked_records()
+        
+        # 如果没有勾选的记录，检查是否有高亮选择的行
+        if not selected_records:
+            selected_rows = self.table.selectionModel().selectedRows()
+            if selected_rows:
+                row = selected_rows[0].row()
+                if 0 <= row < len(self.records):
+                    selected_records.append(self.records[row])
+        
+        return selected_records
+
     def on_table_clicked(self, index):
-        """单击表格行时切换勾选状态"""
+        """单击表格行时的处理（只有点击勾选框列时才切换勾选状态）"""
         if not self.current_user:
             return
         
-        # 获取单击的行
-        row = index.row()
-        if 0 <= row < self.table.rowCount():
-            # 获取该行的勾选框
-            checkbox = self.table.cellWidget(row, 0)
-            if checkbox:
-                # 切换勾选状态
-                checkbox.setChecked(not checkbox.isChecked())
+        # 使用统一的点击处理器
+        from .ui_components import CheckboxClickHandler
+        CheckboxClickHandler.handle_table_click(index, self.table, checkbox_column=0)
 
     def on_table_double_clicked(self, index):
         """双击表格行时进入修改模式"""
@@ -821,11 +609,12 @@ class TableViewer(QWidget):
             # 导入对话框类
             from .visit_record_dialog import VisitRecordDialog
             
-            # 打开编辑模式的对话框
+            # 打开编辑模式的对话框，传递共享的data_storage依赖
             dialog = VisitRecordDialog(
                 user_name=self.current_user,
                 parent=self,
-                edit_record=record
+                edit_record=record,
+                data_storage=self.data_storage
             )
             
             # 连接信号，当记录更新后刷新表格
@@ -840,20 +629,21 @@ class TableViewer(QWidget):
             QMessageBox.warning(self, "错误", "请先选择用户")
             return
         
-        # 获取勾选的记录
-        selected_record = self.get_checked_record()
+        # 获取选中的记录（支持高亮行或勾选行）
+        selected_record = self.get_selected_record()
         if not selected_record:
-            QMessageBox.warning(self, "错误", "请勾选要修改的记录")
+            QMessageBox.warning(self, "错误", "请选择或勾选要修改的记录")
             return
         
         # 导入对话框类
         from .visit_record_dialog import VisitRecordDialog
         
-        # 打开编辑模式的对话框
+        # 打开编辑模式的对话框，传递共享的data_storage依赖
         dialog = VisitRecordDialog(
             user_name=self.current_user,
             parent=self,
-            edit_record=selected_record
+            edit_record=selected_record,
+            data_storage=self.data_storage
         )
         
         # 连接信号，当记录更新后刷新表格
@@ -862,6 +652,42 @@ class TableViewer(QWidget):
         # 显示对话框
         dialog.exec()
     
+    def on_delete_visit_clicked(self):
+        """删除就诊记录按钮点击事件"""
+        if not self.current_user:
+            QMessageBox.warning(self, "错误", "请先选择用户")
+            return
+        
+        selected_records = self.get_selected_records()
+        if not selected_records:
+            QMessageBox.warning(self, "错误", "请选择或勾选要删除的记录")
+            return
+        
+        confirm = QMessageBox.question(
+            self,
+            "确认删除",
+            f"您确定要删除选中的 {len(selected_records)} 条就诊记录吗？\n\n"
+            "此操作不可逆，请谨慎操作。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if confirm == QMessageBox.StandardButton.Yes:
+            try:
+                # 提取记录ID列表
+                record_ids = [record['visit_record_id'] for record in selected_records]
+                
+                # 使用批量删除方法
+                success_count = self.data_storage.delete_multiple_visit_records(self.current_user, record_ids)
+                
+                if success_count > 0:
+                    self.refresh_data()  # 刷新数据
+                    QMessageBox.information(self, "提示", f"成功删除 {success_count} 条就诊记录。")
+                else:
+                    QMessageBox.warning(self, "错误", "删除记录失败。")
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"删除记录失败：{str(e)}")
+
     def on_page_size_changed(self, value):
         """每页记录数改变事件"""
         self.records_per_page = value
@@ -872,84 +698,15 @@ class TableViewer(QWidget):
             self.calculate_pagination()
             self.update_page_display()
     
-    def go_to_first_page(self):
-        """跳转到首页"""
-        if self.current_page != 1:
-            self.current_page = 1
-            self.calculate_pagination()
-            self.update_page_display()
-    
-    def go_to_prev_page(self):
-        """跳转到上一页"""
-        if self.current_page > 1:
-            self.current_page -= 1
-            self.calculate_pagination()
-            self.update_page_display()
-    
-    def go_to_next_page(self):
-        """跳转到下一页"""
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-            self.calculate_pagination()
-            self.update_page_display()
-    
-    def go_to_last_page(self):
-        """跳转到末页"""
-        if self.current_page != self.total_pages:
-            self.current_page = self.total_pages
-            self.calculate_pagination()
-            self.update_page_display()
+
     
     def load_pagination_settings(self):
         """加载分页设置"""
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        # 首先尝试从 history.ini 加载用户设置
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-            if config.has_section('Pagination'):
-                if config.has_option('Pagination', 'records_per_page'):
-                    try:
-                        self.records_per_page = int(config.get('Pagination', 'records_per_page'))
-                        return  # 成功加载用户设置，直接返回
-                    except ValueError:
-                        pass
-        
-        # 如果 history.ini 没有设置，则从 settings.ini 加载默认设置
-        settings_file = 'settings.ini'
-        if os.path.exists(settings_file):
-            config.read(settings_file, encoding='utf-8')
-            if config.has_section('Pagination'):
-                if config.has_option('Pagination', 'records_per_page'):
-                    try:
-                        self.records_per_page = int(config.get('Pagination', 'records_per_page'))
-                        return  # 成功加载默认设置，直接返回
-                    except ValueError:
-                        pass
-        
-        # 如果都没有找到设置，使用硬编码默认值
-        self.records_per_page = 15
+        self.records_per_page = self.config_manager.get_records_per_page()
     
     def save_pagination_settings(self):
         """保存分页设置"""
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        # 读取现有的history.ini内容
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-        
-        # 确保Pagination节存在
-        if not config.has_section('Pagination'):
-            config.add_section('Pagination')
-        
-        # 保存每页记录数设置
-        config.set('Pagination', 'records_per_page', str(self.records_per_page))
-        
-        # 写入文件
-        with open(history_file, 'w', encoding='utf-8') as f:
-            config.write(f)
+        self.config_manager.save_records_per_page(self.records_per_page)
 
     def on_attachment_btn_clicked(self, visit_record_id: int):
         """附件按钮点击事件处理"""
@@ -957,17 +714,17 @@ class TableViewer(QWidget):
             QMessageBox.warning(self, "错误", "请先选择用户")
             return
         
-        # 打开附件管理对话框
-        dialog = AttachmentDialog(self.current_user, visit_record_id, self)
+        # 打开附件管理对话框，传递共享的data_storage依赖
+        dialog = AttachmentDialog(self.current_user, visit_record_id, self, data_storage=self.data_storage)
         dialog.attachments_changed.connect(self.refresh_data)  # 连接信号，当附件变化时刷新数据
         dialog.exec()
 
     def on_search_text_changed(self, text):
-        """搜索文本改变时的处理函数"""
+        """搜索文本改变事件"""
         self.search_text = text
-        self.current_page = 1  # 重置到第一页
-        self.load_data()  # 重新加载数据以应用新的搜索过滤
-    
+        self.current_page = 1  # 搜索时重置到第一页
+        self.load_data()
+
     def create_filter_widgets(self):
         """创建单列筛选输入框"""
         # 清除现有的筛选控件
@@ -998,23 +755,7 @@ class TableViewer(QWidget):
         # 初始更新筛选控件大小
         self.update_filter_widget_sizes()
     
-    def toggle_column_filter(self):
-        """切换单列筛选的开启/关闭状态"""
-        self.column_filter_enabled = not self.column_filter_enabled
-        self.filter_widget.setVisible(self.column_filter_enabled)
-        
-        # 更新按钮状态
-        self.column_filter_btn.setChecked(self.column_filter_enabled)
-        
-        if self.column_filter_enabled:
-            # 开启时更新筛选控件大小
-            self.update_filter_widget_sizes()
-        else:
-            # 关闭时清除所有筛选条件
-            self.column_filters.clear()
-            for filter_input in self.filter_widgets:
-                filter_input.clear()
-            self.load_data()  # 重新加载数据
+
     
     def update_filter_widget_sizes(self):
         """更新筛选输入框的宽度以匹配表格列宽"""
@@ -1034,7 +775,7 @@ class TableViewer(QWidget):
         self.filter_layout.setContentsMargins(left_margin, 0, frame_width, 0)
         
         for i, filter_input in enumerate(self.filter_widgets):
-            column_width = self.table.columnWidth(i)
+            column_width = self.column_width_manager.get_column_width(i) if hasattr(self, 'column_width_manager') else self.table.columnWidth(i)
             filter_input.setFixedWidth(column_width)
             filter_input.setMinimumWidth(column_width)
             filter_input.setMaximumWidth(column_width)
@@ -1117,3 +858,44 @@ class TableViewer(QWidget):
                 filtered.append(record)
         
         return filtered
+
+    def on_filter_toggled(self, enabled: bool):
+        """筛选开关切换处理"""
+        self.column_filter_enabled = enabled
+        self.filter_widget.setVisible(enabled)
+        
+        if enabled:
+            # 开启时更新筛选控件大小
+            self.update_filter_widget_sizes()
+        else:
+            # 关闭时清除所有筛选条件
+            self.column_filters.clear()
+            for filter_input in self.filter_widgets:
+                filter_input.clear()
+            self.load_data()  # 重新加载数据
+
+    def on_page_changed(self, page: int):
+        """页码改变处理"""
+        if page != self.current_page:
+            self.current_page = page
+            # 重新计算当前页的记录
+            self.calculate_pagination()
+            self.update_page_display()
+
+    def on_selection_changed(self):
+        """选择变化信号处理，用于支持行高亮时启用修改按钮"""
+        selected_rows = self.table.selectedIndexes()
+        if selected_rows:
+            # 获取选中的行号
+            selected_row = selected_rows[0].row()
+            # 获取选中的记录
+            selected_record = self.records[selected_row]
+            
+            # 启用修改按钮
+            self.edit_visit_btn.setEnabled(True)
+            # 启用删除按钮
+            self.delete_visit_btn.setEnabled(True)
+        else:
+            # 未选中任何行，禁用修改和删除按钮
+            self.edit_visit_btn.setEnabled(False)
+            self.delete_visit_btn.setEnabled(False)

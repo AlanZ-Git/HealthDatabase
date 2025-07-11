@@ -4,19 +4,27 @@ import glob
 from tkinter import NO
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
+from contextlib import contextmanager
 
 
 class DataStorage:
     """数据库存储管理类，负责所有数据库操作"""
     
-    def __init__(self, data_dir: str = 'data'):
+    # 默认配置
+    DEFAULT_DATA_DIR = 'data'
+    DEFAULT_APPENDIX_DIR = 'Appendix'
+    MAX_FILENAME_LENGTH = 100
+    
+    def __init__(self, data_dir: Optional[str] = None, appendix_dir: Optional[str] = None):
         """
         初始化数据存储管理器
         
         Args:
             data_dir: 数据文件目录
+            appendix_dir: 附件目录
         """
-        self.data_dir = data_dir
+        self.data_dir = data_dir or self.DEFAULT_DATA_DIR
+        self.appendix_dir = appendix_dir or self.DEFAULT_APPENDIX_DIR
         self._ensure_data_dir()
     
     def _ensure_data_dir(self):
@@ -28,6 +36,81 @@ class DataStorage:
         """获取用户数据库文件路径"""
         return os.path.join(self.data_dir, f'{user_name}.sqlite')
     
+    @contextmanager
+    def _db_connection(self, user_name: str):
+        """
+        数据库连接上下文管理器
+        
+        Args:
+            user_name: 用户名
+            
+        Yields:
+            数据库连接对象
+        """
+        db_path = self._get_db_path(user_name)
+        if not os.path.exists(db_path):
+            yield None
+            return
+            
+        conn = None
+        try:
+            conn = sqlite3.connect(db_path)
+            yield conn
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if conn:
+                conn.close()
+    
+    def _execute_query(self, user_name: str, query: str, params: tuple = ()) -> List[tuple]:
+        """
+        执行查询语句的通用方法
+        
+        Args:
+            user_name: 用户名
+            query: SQL查询语句
+            params: 查询参数
+            
+        Returns:
+            查询结果列表
+        """
+        try:
+            with self._db_connection(user_name) as conn:
+                if conn is None:
+                    return []
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                return cursor.fetchall()
+        except Exception as e:
+            print(f"查询执行失败: {e}")
+            return []
+    
+    def _execute_update(self, user_name: str, query: str, params: tuple = ()) -> bool:
+        """
+        执行更新语句的通用方法
+        
+        Args:
+            user_name: 用户名
+            query: SQL更新语句
+            params: 更新参数
+            
+        Returns:
+            是否执行成功
+        """
+        try:
+            with self._db_connection(user_name) as conn:
+                if conn is None:
+                    return False
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"更新执行失败: {e}")
+            return False
+
     def get_all_users(self) -> List[str]:
         """
         获取所有用户列表
@@ -121,6 +204,50 @@ class DataStorage:
             print(f"删除用户失败: {e}")
             return False
     
+    def _get_history_field(self, user_name: str, field: str, hospital_filter: Optional[str] = None, limit: int = 5) -> List[str]:
+        """
+        获取用户历史输入字段的通用方法
+        
+        Args:
+            user_name: 用户名
+            field: 要查询的字段名（hospital, department, doctor）
+            hospital_filter: 医院筛选条件，仅对department和doctor有效
+            limit: 返回结果数量限制，默认5个
+            
+        Returns:
+            字段值列表，按从新到旧排序
+        """
+        # 如果科室或医生查询但医院名称为空（None或空字符串），返回空列表
+        if field in ['department', 'doctor'] and (hospital_filter is None or not hospital_filter.strip()):
+            return []
+        
+        if hospital_filter and hospital_filter.strip() and field in ['department', 'doctor']:
+            # 按医院筛选，获取每个字段值的最新记录
+            query = f'''
+                SELECT {field}
+                FROM visit_records 
+                WHERE {field} IS NOT NULL AND {field} != '' 
+                AND hospital = ?
+                GROUP BY {field}
+                ORDER BY MAX(created_at) DESC
+                LIMIT ?
+            '''
+            params = (hospital_filter, limit)
+        else:
+            # 查询所有值，获取每个字段值的最新记录
+            query = f'''
+                SELECT {field}
+                FROM visit_records 
+                WHERE {field} IS NOT NULL AND {field} != ''
+                GROUP BY {field}
+                ORDER BY MAX(created_at) DESC
+                LIMIT ?
+            '''
+            params = (limit,)
+        
+        results = self._execute_query(user_name, query, params)
+        return [row[0] for row in results]
+
     def get_history_hospitals(self, user_name: str, limit: int = 5) -> List[str]:
         """
         获取用户历史输入的医院名称
@@ -132,31 +259,7 @@ class DataStorage:
         Returns:
             医院名称列表，按从新到旧排序
         """
-        try:
-            db_path = self._get_db_path(user_name)
-            if not os.path.exists(db_path):
-                return []
-            
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            # 查询非空的医院名称，按创建时间倒序排列
-            cursor.execute('''
-                SELECT DISTINCT hospital 
-                FROM visit_records 
-                WHERE hospital IS NOT NULL AND hospital != ''
-                ORDER BY created_at DESC
-                LIMIT ?
-            ''', (limit,))
-            
-            hospitals = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
-            return hospitals
-            
-        except Exception as e:
-            print(f"查询历史医院名称失败: {e}")
-            return []
+        return self._get_history_field(user_name, 'hospital', limit=limit)
     
     def get_history_departments(self, user_name: str, limit: int = 5) -> List[str]:
         """
@@ -169,31 +272,7 @@ class DataStorage:
         Returns:
             科室名称列表，按从新到旧排序
         """
-        try:
-            db_path = self._get_db_path(user_name)
-            if not os.path.exists(db_path):
-                return []
-            
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            # 查询非空的科室名称，按创建时间倒序排列
-            cursor.execute('''
-                SELECT DISTINCT department 
-                FROM visit_records 
-                WHERE department IS NOT NULL AND department != ''
-                ORDER BY created_at DESC
-                LIMIT ?
-            ''', (limit,))
-            
-            departments = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
-            return departments
-            
-        except Exception as e:
-            print(f"查询历史科室名称失败: {e}")
-            return []
+        return self._get_history_field(user_name, 'department', limit=limit)
     
     def get_history_departments_by_hospital(self, user_name: str, hospital: Optional[str] = None, limit: int = 5) -> List[str]:
         """
@@ -207,37 +286,7 @@ class DataStorage:
         Returns:
             科室名称列表，按从新到旧排序
         """
-        try:
-            db_path = self._get_db_path(user_name)
-            if not os.path.exists(db_path):
-                return []
-            
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            if hospital and hospital.strip():
-                # 如果指定了医院，则只查询该医院的科室
-                cursor.execute('''
-                    SELECT DISTINCT department 
-                    FROM visit_records 
-                    WHERE department IS NOT NULL AND department != '' 
-                    AND hospital = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                ''', (hospital, limit))
-            else:
-                # 如果没有指定医院，返回空列表（不执行查询）
-                conn.close()
-                return []
-            
-            departments = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
-            return departments
-            
-        except Exception as e:
-            print(f"查询历史科室名称失败: {e}")
-            return []
+        return self._get_history_field(user_name, 'department', hospital_filter=hospital, limit=limit)
     
     def get_history_doctors(self, user_name: str, hospital: Optional[str] = None, limit: int = 5) -> List[str]:
         """
@@ -251,42 +300,7 @@ class DataStorage:
         Returns:
             医生名称列表，按从新到旧排序
         """
-        try:
-            db_path = self._get_db_path(user_name)
-            if not os.path.exists(db_path):
-                return []
-            
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            if hospital and hospital.strip():
-                # 如果指定了医院，则只查询该医院的医生
-                cursor.execute('''
-                    SELECT DISTINCT doctor 
-                    FROM visit_records 
-                    WHERE doctor IS NOT NULL AND doctor != '' 
-                    AND hospital = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                ''', (hospital, limit))
-            else:
-                # 查询所有医生
-                cursor.execute('''
-                    SELECT DISTINCT doctor 
-                    FROM visit_records 
-                    WHERE doctor IS NOT NULL AND doctor != ''
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                ''', (limit,))
-            
-            doctors = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
-            return doctors
-            
-        except Exception as e:
-            print(f"查询历史医生名称失败: {e}")
-            return []
+        return self._get_history_field(user_name, 'doctor', hospital_filter=hospital, limit=limit)
     
     def upload_visit_record(self, visit_data: Dict) -> bool:
         """
@@ -376,15 +390,8 @@ class DataStorage:
             attachment_paths: 附件路径列表
             user_name: 用户名
         """
-        # 确保Appendix目录存在
-        appendix_dir = 'Appendix'
-        if not os.path.exists(appendix_dir):
-            os.makedirs(appendix_dir)
-        
-        # 确保用户目录存在
-        user_dir = os.path.join(appendix_dir, user_name)
-        if not os.path.exists(user_dir):
-            os.makedirs(user_dir)
+        # 确保用户附件目录存在
+        user_dir = self._ensure_user_attachment_dir(user_name)
         
         attachment_id = 1
         for attachment_path in attachment_paths:
@@ -393,25 +400,11 @@ class DataStorage:
                 continue
             
             try:
-                # 获取原文件名和扩展名
+                # 获取原文件名并生成新文件名
                 original_name = os.path.basename(attachment_path)
-                name, ext = os.path.splitext(original_name)
+                new_name = self._generate_attachment_filename(visit_record_id, attachment_id, original_name)
                 
-                # 生成新文件名：{visit_record_id}_{attachment_id}_{name}
-                new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
-                
-                # 如果新文件名长度超过100个字符，截断name部分
-                if len(new_name) > 100:
-                    # 计算可用的name长度：100 - len(visit_record_id) - len(attachment_id) - len(ext) - 2个下划线
-                    max_name_length = 100 - len(str(visit_record_id)) - len(str(attachment_id)) - len(ext) - 2
-                    if max_name_length > 0:
-                        name = name[:max_name_length]
-                        new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
-                    else:
-                        # 如果连基本结构都放不下，使用最简单的命名
-                        new_name = f"{visit_record_id}_{attachment_id}{ext}"
-                
-                # 构建目标路径：{user}/{visit_record_id}_{attachment_id}_{name}
+                # 构建目标路径
                 target_path = os.path.join(user_dir, new_name)
                 
                 # 复制文件到Appendix目录
@@ -443,57 +436,44 @@ class DataStorage:
         Returns:
             就诊记录列表，每个记录为字典格式
         """
-        try:
-            db_path = self._get_db_path(user_name)
-            if not os.path.exists(db_path):
-                return []
-            
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            # 验证排序参数
-            valid_columns = ['visit_record_id', 'date']
-            valid_orders = ['ASC', 'DESC']
-            
-            if sort_column not in valid_columns:
-                sort_column = 'visit_record_id'
-            if sort_order not in valid_orders:
-                sort_order = 'ASC'
-            
-            # 查询所有就诊记录，根据指定的排序字段和顺序排列
-            query = f'''
-                SELECT visit_record_id, date, hospital, department, doctor, 
-                       organ_system, reason, diagnosis, medication, remark,
-                       created_at, updated_at
-                FROM visit_records 
-                ORDER BY {sort_column} {sort_order}
-            '''
-            cursor.execute(query)
-            
-            records = []
-            for row in cursor.fetchall():
-                record = {
-                    'visit_record_id': row[0],
-                    'date': row[1],
-                    'hospital': row[2],
-                    'department': row[3],
-                    'doctor': row[4],
-                    'organ_system': row[5],
-                    'reason': row[6],
-                    'diagnosis': row[7],
-                    'medication': row[8],
-                    'remark': row[9],
-                    'created_at': row[10],
-                    'updated_at': row[11]
-                }
-                records.append(record)
-            
-            conn.close()
-            return records
-            
-        except Exception as e:
-            print(f"查询用户就诊记录失败: {e}")
-            return []
+        # 验证排序参数
+        valid_columns = ['visit_record_id', 'date']
+        valid_orders = ['ASC', 'DESC']
+        
+        if sort_column not in valid_columns:
+            sort_column = 'visit_record_id'
+        if sort_order not in valid_orders:
+            sort_order = 'ASC'
+        
+        # 查询所有就诊记录
+        query = f'''
+            SELECT visit_record_id, date, hospital, department, doctor, 
+                   organ_system, reason, diagnosis, medication, remark,
+                   created_at, updated_at
+            FROM visit_records 
+            ORDER BY {sort_column} {sort_order}
+        '''
+        
+        results = self._execute_query(user_name, query)
+        records = []
+        for row in results:
+            record = {
+                'visit_record_id': row[0],
+                'date': row[1],
+                'hospital': row[2],
+                'department': row[3],
+                'doctor': row[4],
+                'organ_system': row[5],
+                'reason': row[6],
+                'diagnosis': row[7],
+                'medication': row[8],
+                'remark': row[9],
+                'created_at': row[10],
+                'updated_at': row[11]
+            }
+            records.append(record)
+        
+        return records
 
     def get_visit_record_by_id(self, user_name: str, visit_record_id: int) -> Optional[Dict]:
         """
@@ -506,47 +486,33 @@ class DataStorage:
         Returns:
             就诊记录字典，如果未找到则返回None
         """
-        try:
-            db_path = self._get_db_path(user_name)
-            if not os.path.exists(db_path):
-                return None
-            
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            # 查询指定ID的就诊记录
-            cursor.execute('''
-                SELECT visit_record_id, date, hospital, department, doctor, 
-                       organ_system, reason, diagnosis, medication, remark,
-                       created_at, updated_at
-                FROM visit_records 
-                WHERE visit_record_id = ?
-            ''', (visit_record_id,))
-            
-            row = cursor.fetchone()
-            conn.close()
-            
-            if row:
-                record = {
-                    'visit_record_id': row[0],
-                    'date': row[1],
-                    'hospital': row[2],
-                    'department': row[3],
-                    'doctor': row[4],
-                    'organ_system': row[5],
-                    'reason': row[6],
-                    'diagnosis': row[7],
-                    'medication': row[8],
-                    'remark': row[9],
-                    'created_at': row[10],
-                    'updated_at': row[11]
-                }
-                return record
-            else:
-                return None
-                
-        except Exception as e:
-            print(f"查询就诊记录失败: {e}")
+        query = '''
+            SELECT visit_record_id, date, hospital, department, doctor, 
+                   organ_system, reason, diagnosis, medication, remark,
+                   created_at, updated_at
+            FROM visit_records 
+            WHERE visit_record_id = ?
+        '''
+        
+        results = self._execute_query(user_name, query, (visit_record_id,))
+        
+        if results:
+            row = results[0]
+            return {
+                'visit_record_id': row[0],
+                'date': row[1],
+                'hospital': row[2],
+                'department': row[3],
+                'doctor': row[4],
+                'organ_system': row[5],
+                'reason': row[6],
+                'diagnosis': row[7],
+                'medication': row[8],
+                'remark': row[9],
+                'created_at': row[10],
+                'updated_at': row[11]
+            }
+        else:
             return None
 
     def update_visit_record(self, visit_data: Dict) -> bool:
@@ -635,37 +601,26 @@ class DataStorage:
         Returns:
             附件列表，每个附件为字典格式 {'attachment_id': int, 'file_path': str, 'file_name': str}
         """
-        try:
-            db_path = self._get_db_path(user_name)
-            if not os.path.exists(db_path):
-                return []
-            
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT attachment_id, file_path
-                FROM attachment_records 
-                WHERE visit_record_id = ?
-                ORDER BY attachment_id ASC
-            ''', (visit_record_id,))
-            
-            attachments = []
-            for row in cursor.fetchall():
-                attachment_id, file_path = row
-                file_name = os.path.basename(file_path)
-                attachments.append({
-                    'attachment_id': attachment_id,
-                    'file_path': file_path,
-                    'file_name': file_name
-                })
-            
-            conn.close()
-            return attachments
-            
-        except Exception as e:
-            print(f"获取附件列表失败: {e}")
-            return []
+        query = '''
+            SELECT attachment_id, file_path
+            FROM attachment_records 
+            WHERE visit_record_id = ?
+            ORDER BY attachment_id ASC
+        '''
+        
+        results = self._execute_query(user_name, query, (visit_record_id,))
+        
+        attachments = []
+        for row in results:
+            attachment_id, file_path = row
+            file_name = os.path.basename(file_path)
+            attachments.append({
+                'attachment_id': attachment_id,
+                'file_path': file_path,
+                'file_name': file_name
+            })
+        
+        return attachments
 
     def delete_attachment(self, user_name: str, attachment_id: int) -> bool:
         """
@@ -716,6 +671,84 @@ class DataStorage:
         except Exception as e:
             print(f"删除附件失败: {e}")
             return False
+
+    def delete_visit_record(self, user_name: str, visit_record_id: int) -> bool:
+        """
+        删除指定的就诊记录及其所有附件
+        
+        Args:
+            user_name: 用户名
+            visit_record_id: 就诊记录ID
+            
+        Returns:
+            是否删除成功
+        """
+        try:
+            db_path = self._get_db_path(user_name)
+            if not os.path.exists(db_path):
+                return False
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # 先获取该记录的所有附件，用于删除物理文件
+            cursor.execute('SELECT file_path FROM attachment_records WHERE visit_record_id = ?', 
+                         (visit_record_id,))
+            attachment_files = cursor.fetchall()
+            
+            # 删除附件记录
+            cursor.execute('DELETE FROM attachment_records WHERE visit_record_id = ?', 
+                         (visit_record_id,))
+            
+            # 删除就诊记录
+            cursor.execute('DELETE FROM visit_records WHERE visit_record_id = ?', 
+                         (visit_record_id,))
+            
+            # 检查是否有记录被删除
+            if cursor.rowcount == 0:
+                print(f"错误：未找到ID为 {visit_record_id} 的就诊记录")
+                conn.close()
+                return False
+            
+            # 删除附件的物理文件
+            for (file_path,) in attachment_files:
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"成功删除附件文件: {file_path}")
+                    except Exception as e:
+                        print(f"删除附件文件失败: {e}")
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"成功删除就诊记录，记录ID: {visit_record_id}")
+            return True
+            
+        except Exception as e:
+            print(f"删除就诊记录失败: {e}")
+            return False
+
+    def delete_multiple_visit_records(self, user_name: str, visit_record_ids: List[int]) -> int:
+        """
+        批量删除就诊记录及其所有附件
+        
+        Args:
+            user_name: 用户名
+            visit_record_ids: 就诊记录ID列表
+            
+        Returns:
+            成功删除的记录数量
+        """
+        if not visit_record_ids:
+            return 0
+            
+        success_count = 0
+        for visit_record_id in visit_record_ids:
+            if self.delete_visit_record(user_name, visit_record_id):
+                success_count += 1
+        
+        return success_count
 
     def add_attachment_to_visit(self, user_name: str, visit_record_id: int, attachment_path: str) -> bool:
         """
@@ -787,18 +820,17 @@ class DataStorage:
             new_file_name = os.path.basename(new_file_path)
             name, ext = os.path.splitext(new_file_name)
             
-            # 确保Appendix目录和用户目录存在
-            appendix_dir = 'Appendix'
-            user_dir = os.path.join(appendix_dir, user_name)
+            # 确保附件目录和用户目录存在
+            user_dir = os.path.join(self.appendix_dir, user_name)
             if not os.path.exists(user_dir):
                 os.makedirs(user_dir, exist_ok=True)
             
             # 生成新的文件名，保持原有命名规则：{visit_record_id}_{attachment_id}_{name}
             new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
             
-            # 如果新文件名长度超过100个字符，截断name部分
-            if len(new_name) > 100:
-                max_name_length = 100 - len(str(visit_record_id)) - len(str(attachment_id)) - len(ext) - 2
+            # 如果新文件名长度超过限制，截断name部分
+            if len(new_name) > self.MAX_FILENAME_LENGTH:
+                max_name_length = self.MAX_FILENAME_LENGTH - len(str(visit_record_id)) - len(str(attachment_id)) - len(ext) - 2
                 if max_name_length > 0:
                     name = name[:max_name_length]
                     new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
@@ -838,3 +870,51 @@ class DataStorage:
         except Exception as e:
             print(f"更新附件失败: {e}")
             return False
+
+    def _ensure_user_attachment_dir(self, user_name: str) -> str:
+        """
+        确保用户附件目录存在并返回路径
+        
+        Args:
+            user_name: 用户名
+            
+        Returns:
+            用户附件目录路径
+        """
+        # 确保附件目录存在
+        if not os.path.exists(self.appendix_dir):
+            os.makedirs(self.appendix_dir)
+        
+        # 确保用户目录存在
+        user_dir = os.path.join(self.appendix_dir, user_name)
+        if not os.path.exists(user_dir):
+            os.makedirs(user_dir)
+            
+        return user_dir
+    
+    def _generate_attachment_filename(self, visit_record_id: int, attachment_id: int, original_name: str) -> str:
+        """
+        生成附件文件名
+        
+        Args:
+            visit_record_id: 就诊记录ID
+            attachment_id: 附件ID
+            original_name: 原始文件名
+            
+        Returns:
+            新的文件名
+        """
+        name, ext = os.path.splitext(original_name)
+        new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
+        
+        # 如果新文件名长度超过限制，截断name部分
+        if len(new_name) > self.MAX_FILENAME_LENGTH:
+            max_name_length = self.MAX_FILENAME_LENGTH - len(str(visit_record_id)) - len(str(attachment_id)) - len(ext) - 2
+            if max_name_length > 0:
+                name = name[:max_name_length]
+                new_name = f"{visit_record_id}_{attachment_id}_{name}{ext}"
+            else:
+                # 如果连基本结构都放不下，使用最简单的命名
+                new_name = f"{visit_record_id}_{attachment_id}{ext}"
+        
+        return new_name

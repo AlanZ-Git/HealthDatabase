@@ -1,63 +1,73 @@
 import sys
 import os
+from typing import Optional
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QMessageBox, QInputDialog, QFrame
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from PyQt6.QtGui import QIcon
 from lib.data_storage import DataStorage
 from lib.table_viewer import TableViewer
 from lib.visit_record_dialog import VisitRecordDialog
 from lib.settings_manager import SettingsManager
-import configparser
+from lib.config_manager import ConfigManager
+from lib.ui_components import StandardButtonBar
 
 
 class VisitInputWidget(QWidget):
-    def __init__(self):
+    def __init__(self, data_storage: Optional[DataStorage] = None, config_manager: Optional[ConfigManager] = None):
         super().__init__()
         self.setWindowTitle('就诊记录')
-        self.data_storage = DataStorage()  # 初始化数据存储管理器
-        # 加载窗口大小设置
-        self.load_window_size()
+        self.data_storage = data_storage or DataStorage()  # 使用传入的依赖或创建新实例
+        self.config_manager = config_manager or ConfigManager()  # 使用传入的依赖或创建新实例
+        
+        # 跟踪窗口状态，用于检测最大化状态变化
+        self._was_maximized = False
+        
+        # 加载窗口设置
+        self.config_manager.apply_window_settings(self)
+        # 更新初始最大化状态
+        self._was_maximized = self.isMaximized()
+        
         self.init_ui()
 
     def init_ui(self):
-        # 用户选择区域
+        # 使用StandardButtonBar创建用户管理布局
+        user_layout = StandardButtonBar()
+        
+        # 左侧区域：用户选择和操作按钮
         user_label = QLabel('选择用户')
+        user_layout.addWidget(user_label)
+        
         self.user_combo = QComboBox()
         self.user_combo.addItem('请选择用户...')
         self.user_combo.setMinimumWidth(208)
         # 当用户选择改变时，更新医院名称自动完成列表
         self.user_combo.currentTextChanged.connect(self.on_user_changed)
+        user_layout.addWidget(self.user_combo)
+        
+        # 用户操作按钮组
         self.create_user_btn = QPushButton('创建新用户')
         self.create_user_btn.clicked.connect(self.create_new_user)
+        
         self.delete_user_btn = QPushButton('删除用户')
         self.delete_user_btn.clicked.connect(self.delete_user)
+        
+        user_layout.add_left_buttons([self.create_user_btn, self.delete_user_btn])
+        
+        # 右侧区域：设置按钮
         self.settings_btn = QPushButton('设置')
         self.settings_btn.clicked.connect(self.open_settings)
         self.settings_btn.setFixedWidth(80)  # 设置固定宽度，与刷新按钮保持一致
         
+        user_layout.add_right_buttons([self.settings_btn])
+        
         # 读取data文件夹下的sqlite文件
         self.load_users()
-        
-        # 创建竖向分隔符
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        
-        # 用户选择布局
-        user_layout = QHBoxLayout()
-        user_layout.setSpacing(6)
-        user_layout.addWidget(user_label)
-        user_layout.addWidget(self.user_combo)
-        user_layout.addWidget(self.create_user_btn)
-        user_layout.addWidget(self.delete_user_btn)
-        user_layout.addStretch()  # 中间区域拉伸，与表格查看器的布局保持一致
-        user_layout.addWidget(self.settings_btn)  # 设置按钮在最右端，与刷新按钮对齐
 
-        # 表格查看区域（直接嵌入，不使用Tab）
-        self.table_viewer = TableViewer()
+        # 表格查看区域（直接嵌入，不使用Tab），传递依赖
+        self.table_viewer = TableViewer(data_storage=self.data_storage, config_manager=self.config_manager)
         # 连接信号，处理录入就诊信息的请求
         self.table_viewer.visit_input_requested.connect(self.open_visit_input_dialog)
         
@@ -84,96 +94,49 @@ class VisitInputWidget(QWidget):
 
     def load_last_user(self):
         """加载上次选择的用户"""
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-            if config.has_section('History') and config.has_option('History', 'last_user'):
-                last_user = config.get('History', 'last_user')
-                # 在下拉框中查找并选择该用户
-                index = self.user_combo.findText(last_user)
-                if index >= 0:
-                    self.user_combo.setCurrentIndex(index)
-                    # 修复：手动触发用户数据加载
-                    self.on_user_changed()
-
-    def load_window_size(self):
-        """加载窗口大小和位置设置"""
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        # 首先尝试从 history.ini 加载用户设置
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-            if config.has_section('Window'):
-                try:
-                    width = config.getint('Window', 'width')
-                    height = config.getint('Window', 'height')
-                    x = config.getint('Window', 'x')
-                    y = config.getint('Window', 'y')
-                    self.resize(width, height)
-                    self.move(x, y)
-                    return  # 成功加载用户设置，直接返回
-                except:
-                    pass
-        
-        # 如果 history.ini 没有设置，则从 settings.ini 加载默认设置
-        settings_file = 'settings.ini'
-        if os.path.exists(settings_file):
-            config.read(settings_file, encoding='utf-8')
-            if config.has_section('Window'):
-                try:
-                    width = config.getint('Window', 'width')
-                    height = config.getint('Window', 'height')
-                    self.resize(width, height)
-                    self.center_on_screen()  # 使用默认设置时居中显示
-                    return  # 成功加载默认设置，直接返回
-                except:
-                    pass
-        
-        # 如果都没有找到设置，使用硬编码默认大小并居中显示
-        self.resize(1200, 800)
-        self.center_on_screen()
-
-    def center_on_screen(self):
-        """将窗口居中显示在屏幕上"""
-        screen = QApplication.primaryScreen().geometry()
-        window_geometry = self.geometry()
-        
-        # 计算居中位置
-        x = (screen.width() - window_geometry.width()) // 2
-        y = (screen.height() - window_geometry.height()) // 2
-        
-        self.move(x, y)
-
-    def save_window_size(self):
-        """保存当前窗口大小和位置到history.ini"""
-        config = configparser.ConfigParser()
-        history_file = 'history.ini'
-        
-        # 读取现有配置
-        if os.path.exists(history_file):
-            config.read(history_file, encoding='utf-8')
-        
-        # 确保Window节存在
-        if not config.has_section('Window'):
-            config.add_section('Window')
-        
-        # 保存窗口大小和位置
-        config.set('Window', 'width', str(self.width()))
-        config.set('Window', 'height', str(self.height()))
-        config.set('Window', 'x', str(self.x()))
-        config.set('Window', 'y', str(self.y()))
-        
-        # 写入文件
-        with open(history_file, 'w', encoding='utf-8') as f:
-            config.write(f)
+        last_user = self.config_manager.get_last_user()
+        if last_user:
+            # 在下拉框中查找并选择该用户
+            index = self.user_combo.findText(last_user)
+            if index >= 0:
+                self.user_combo.setCurrentIndex(index)
+                # 修复：手动触发用户数据加载
+                self.on_user_changed()
 
     def closeEvent(self, event):
-        """窗口关闭事件：保存窗口大小"""
-        self.save_window_size()
+        """窗口关闭事件：保存窗口设置"""
+        self.config_manager.save_window_settings(self)
         event.accept()
+    
+    def changeEvent(self, event):
+        """窗口状态变化事件：处理最大化状态变化"""
+        super().changeEvent(event)
+        
+        if event.type() == QEvent.Type.WindowStateChange:
+            current_maximized = self.isMaximized()
+            
+            # 检测从最大化变为正常状态
+            if self._was_maximized and not current_maximized:
+                # 从最大化退出到正常模式，应用保存的窗口大小和位置
+                self._apply_saved_window_geometry()
+            
+            # 更新最大化状态跟踪
+            self._was_maximized = current_maximized
+    
+    def _apply_saved_window_geometry(self):
+        """应用保存的窗口大小和位置（用于从最大化退出时）"""
+        # 获取保存的窗口大小和位置
+        width, height = self.config_manager.get_window_size()
+        position = self.config_manager.get_window_position()
+        
+        # 应用窗口大小
+        self.resize(width, height)
+        
+        # 应用窗口位置
+        if position:
+            self.move(position[0], position[1])
+        else:
+            self.config_manager.center_window_on_screen(self)
 
     def create_new_user(self):
         """创建新用户"""
@@ -243,7 +206,7 @@ class VisitInputWidget(QWidget):
 
     def open_settings(self):
         """打开设置窗口"""
-        self.settings_window = SettingsManager(table_viewer=self.table_viewer)
+        self.settings_window = SettingsManager(table_viewer=self.table_viewer, config_manager=self.config_manager)
         self.settings_window.show()
 
     def open_visit_input_dialog(self):
@@ -254,8 +217,8 @@ class VisitInputWidget(QWidget):
             QMessageBox.warning(self, '警告', '请先选择用户！')
             return
         
-        # 创建并显示弹窗
-        dialog = VisitRecordDialog(current_user, self)
+        # 创建并显示弹窗，传递共享的data_storage依赖
+        dialog = VisitRecordDialog(current_user, self, data_storage=self.data_storage)
         dialog.record_uploaded.connect(self.on_record_uploaded)  # 连接信号
         dialog.show()
     
@@ -267,18 +230,10 @@ class VisitInputWidget(QWidget):
         print("记录上传成功，主窗口收到通知")
 
     def on_user_changed(self):
-        # 保存当前用户到history.ini
+        # 保存当前用户选择
         current_user = self.user_combo.currentText()
         if current_user and current_user != '请选择用户...':
-            config = configparser.ConfigParser()
-            history_file = 'history.ini'
-            if os.path.exists(history_file):
-                config.read(history_file, encoding='utf-8')
-            if 'History' not in config:
-                config['History'] = {}
-            config['History']['last_user'] = current_user
-            with open(history_file, 'w', encoding='utf-8') as f:
-                config.write(f)
+            self.config_manager.save_last_user(current_user)
         
         # 更新表格查看器的用户
         if hasattr(self, 'table_viewer'):
@@ -289,6 +244,18 @@ def main():
     app = QApplication(sys.argv)
 
     app.setWindowIcon(QIcon('icon.png'))
+    
+    # 应用字体倍数设置
+    config_manager = ConfigManager()
+    font_scale = config_manager.get_font_scale()
+    
+    # 获取当前字体并应用倍数
+    font = app.font()
+    original_point_size = font.pointSize()
+    if original_point_size > 0:
+        new_point_size = int(original_point_size * font_scale)
+        font.setPointSize(new_point_size)
+        app.setFont(font)
     
     widget = VisitInputWidget()
     widget.show()
