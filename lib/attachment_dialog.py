@@ -1,9 +1,8 @@
 from PyQt6.QtWidgets import (
-    QDialog, QLabel, QPushButton, QListWidget, QListWidgetItem,
-    QHBoxLayout, QVBoxLayout, QMessageBox, QFileDialog, QCheckBox
+    QLabel, QPushButton,
+    QVBoxLayout, QMessageBox, QFileDialog,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent
 import os
 import subprocess
 import platform

@@ -1,16 +1,14 @@
 from PyQt6.QtWidgets import (
-    QDialog, QLabel, QLineEdit, QTextEdit, QPushButton, QListWidget,
+    QLabel, QLineEdit, QTextEdit, QPushButton, QListWidget,
     QHBoxLayout, QVBoxLayout, QGridLayout, QFileDialog, QFrame, QSizePolicy,
     QListWidgetItem, QCheckBox, QDateEdit, QMessageBox
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal
-from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent
 import os
 
 from .data_storage import DataStorage
-from .attachment_dialog import AttachmentDialog
-from .ui_components import BaseDialog, StandardButtonBar, CheckableListWidget, AutoCompleteLineEdit
-from typing import List, Dict, Callable, Optional
+from .ui_components import BaseDialog, StandardButtonBar, AutoCompleteLineEdit
+from typing import Optional
 
 
 class PlainTextEdit(QTextEdit):

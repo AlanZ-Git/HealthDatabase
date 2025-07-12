@@ -3,7 +3,7 @@
 包含与表格相关的高级组件和管理器，提供可复用的表格功能
 """
 
-from PyQt6.QtWidgets import QHeaderView, QTableWidget, QHBoxLayout, QLineEdit, QWidget
+from PyQt6.QtWidgets import QHeaderView, QTableWidget, QHBoxLayout, QLineEdit
 from PyQt6.QtCore import QObject, pyqtSignal
 from typing import Dict, Optional, List, Callable, Any
 

@@ -1,19 +1,16 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QLabel, QHeaderView, QMessageBox, QAbstractItemView, QCheckBox,
-    QSpinBox, QLineEdit
+    QPushButton, QLabel, QMessageBox, QAbstractItemView, QCheckBox,
+    QLineEdit
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
 from typing import List, Dict, Optional
 from .data_storage import DataStorage
 from .attachment_dialog import AttachmentDialog
 from .config_manager import ConfigManager
 from .table_components import create_health_db_column_manager
-from .ui_components import StandardButtonBar, SmartSearchBar, PaginationBar, InfoBar
+from .ui_components import StandardButtonBar, SmartSearchBar, PaginationBar
 from .export_manager import export_health_records
-import configparser
-import os
 
 
 class TableViewer(QWidget):

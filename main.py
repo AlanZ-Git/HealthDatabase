@@ -2,10 +2,10 @@ import sys
 import os
 from typing import Optional
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-    QPushButton, QMessageBox, QInputDialog, QFrame
+    QApplication, QWidget, QVBoxLayout, QLabel, QComboBox,
+    QPushButton, QMessageBox, QInputDialog
 )
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtCore import QEvent
 from PyQt6.QtGui import QIcon
 from lib.data_storage import DataStorage
 from lib.table_viewer import TableViewer
