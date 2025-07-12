@@ -23,26 +23,23 @@ def zip_folder(folder_path: str):
     
     return zip_path
 
-def read_version_tuple_from_txt(txt_path: str) -> tuple:
+def read_product_version_from_txt(txt_path: str) -> str:
     """
-    读取txt文件的第五行，将tuple数字输出
+    读取txt文件第22行u'ProductVersion'的下一个字符串（即版本号字符串）
     :param txt_path: txt文件路径
-    :return: tuple
+    :return: 版本号字符串
     """
     with open(txt_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
-    if len(lines) < 5:
-        raise ValueError("文件行数不足5行")
-    line = lines[4].strip()
-    # 假设格式为 filevers=(2025, 7, 12, 0),  # ...
-    start = line.find('(')
-    end = line.find(')', start)
-    if start == -1 or end == -1:
-        raise ValueError("第五行未找到tuple格式")
-    tuple_str = line[start+1:end]
-    # 转换为tuple
-    version_tuple = tuple(int(x.strip()) for x in tuple_str.split(','))
-    return version_tuple
+    if len(lines) < 22:
+        raise ValueError("文件行数不足22行")
+    line = lines[21].strip()
+    # 查找u'ProductVersion'后面的字符串
+    import re
+    match = re.search(r"u'ProductVersion'\s*,\s*u'([^']+)'", line)
+    if not match:
+        raise ValueError("第22行未找到ProductVersion对应的字符串")
+    return match.group(1)
 
 
 def compile(name: str = '就诊信息管理'):
@@ -62,7 +59,7 @@ def compile(name: str = '就诊信息管理'):
         default_ini = 'settings.ini'
         icon = 'icon.png'
 
-        version = 'v' + '.'.join(str(x) for x in read_version_tuple_from_txt('version_info.txt'))
+        version = 'v' + read_product_version_from_txt('version_info.txt')
 
         dir_path = f'dist/{name}'
         os.makedirs(dir_path, exist_ok=True)
