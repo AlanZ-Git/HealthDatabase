@@ -12,3 +12,9 @@ history.ini
 
 # 临时文件
 tmp_*
+
+# 编译文件
+.venv/
+build/
+dist/
+*.spec
