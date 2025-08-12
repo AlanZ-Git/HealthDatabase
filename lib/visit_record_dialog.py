@@ -279,9 +279,9 @@ class VisitRecordDialog(BaseDialog):
             self.upload_btn = QPushButton('保存修改')
         else:
             # 新增模式下使用原有的附件按钮
-            self.add_attachment_btn = QPushButton('添加附件按钮')
-            self.remove_attachment_btn = QPushButton('移除附件按钮')
-            self.remove_all_attachment_btn = QPushButton('移除所有附件按钮')
+            self.add_attachment_btn = QPushButton('添加附件')
+            self.remove_attachment_btn = QPushButton('移除附件')
+            self.remove_all_attachment_btn = QPushButton('移除所有附件')
             
             self.add_attachment_btn.clicked.connect(self.add_attachment)
             self.remove_attachment_btn.clicked.connect(self.remove_attachment)
@@ -290,7 +290,7 @@ class VisitRecordDialog(BaseDialog):
             attach_btn_h.add_left_buttons([self.add_attachment_btn, self.remove_attachment_btn, self.remove_all_attachment_btn])
             
             # 根据模式设置按钮文本
-            self.upload_btn = QPushButton('上传本次记录按钮')
+            self.upload_btn = QPushButton('上传本次记录')
         
         self.upload_btn.clicked.connect(self.upload_visit_record)
 
