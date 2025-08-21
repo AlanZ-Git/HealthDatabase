@@ -16,11 +16,12 @@ from lib.ui_components import StandardButtonBar
 
 
 class VisitInputWidget(QWidget):
-    def __init__(self, data_storage: Optional[DataStorage] = None, config_manager: Optional[ConfigManager] = None):
+    def __init__(self, data_storage: Optional[DataStorage] = None, config_manager: Optional[ConfigManager] = None, app: Optional[QApplication] = None):
         super().__init__()
         self.setWindowTitle('就诊记录')
         self.data_storage = data_storage or DataStorage()  # 使用传入的依赖或创建新实例
         self.config_manager = config_manager or ConfigManager()  # 使用传入的依赖或创建新实例
+        self.app = app  # 主应用程序引用，用于字体设置
         
         # 跟踪窗口状态，用于检测最大化状态变化
         self._was_maximized = False
@@ -206,7 +207,14 @@ class VisitInputWidget(QWidget):
 
     def open_settings(self):
         """打开设置窗口"""
-        self.settings_window = SettingsManager(table_viewer=self.table_viewer, config_manager=self.config_manager)
+        self.settings_window = SettingsManager(
+            table_viewer=self.table_viewer, 
+            config_manager=self.config_manager,
+            main_app=self.app
+        )
+        # 连接字体变化信号
+        self.settings_window.font_changed.connect(self.apply_font_preview)
+        self.settings_window.font_restored.connect(self.restore_original_font)
         self.settings_window.show()
 
     def open_visit_input_dialog(self):
@@ -238,6 +246,30 @@ class VisitInputWidget(QWidget):
         # 更新表格查看器的用户
         if hasattr(self, 'table_viewer'):
             self.table_viewer.set_user(current_user)
+    
+    def apply_font_preview(self, font_scale):
+        """应用字体预览"""
+        if self.app:
+            font = self.app.font()
+            original_point_size = font.pointSize()
+            if original_point_size > 0:
+                # 计算新字体大小（基于系统默认字体大小）
+                # 需要恢复到基本字体大小，然后应用新的倍数
+                base_point_size = getattr(self, '_base_font_size', None)
+                if base_point_size is None:
+                    # 第一次调用，保存基本字体大小
+                    current_scale = self.config_manager.get_font_scale()
+                    self._base_font_size = int(original_point_size / current_scale)
+                    base_point_size = self._base_font_size
+                
+                new_point_size = int(base_point_size * font_scale)
+                font.setPointSize(new_point_size)
+                self.app.setFont(font)
+    
+    def restore_original_font(self):
+        """恢复原始字体设置"""
+        original_scale = self.config_manager.get_font_scale()
+        self.apply_font_preview(original_scale)
 
 
 def main():
@@ -257,7 +289,7 @@ def main():
         font.setPointSize(new_point_size)
         app.setFont(font)
     
-    widget = VisitInputWidget()
+    widget = VisitInputWidget(app=app, config_manager=config_manager)
     widget.show()
     
     sys.exit(app.exec())
