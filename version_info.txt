@@ -2,7 +2,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
 #filevers和prodvers应该始终是包含四个项的元组：（1、2、3、4）,将不需要的项设置为0
-filevers=(2025, 8, 22, 0),  # 文件版本******，鼠标悬浮exe会显示，也显示在 详细信息-文件版本,这个是检测版本的依据
+filevers=(2026, 2, 15, 0),  # 文件版本******，鼠标悬浮exe会显示，也显示在 详细信息-文件版本,这个是检测版本的依据
 prodvers=(4, 6, 9, 4), # 生产商，未见显示在哪里
 mask=0x3f, # 两个位掩码
 flags=0x0,
@@ -19,7 +19,7 @@ StringFileInfo(
     StringStruct(u'LegalCopyright', u'AlanZ'), #版权，会显示在 详细信息-版权
     StringStruct(u'FileDescription', u'管理个人就诊记录'),    # 文件说明，鼠标悬浮exe会显示，也会显示在 详细信息-文件说明
     StringStruct(u'ProductName', u'就诊信息管理'),      #产品名称，会显示在 详细信息-产品名称
-    StringStruct(u'ProductVersion', u'1.1')])    #产品版本，会显示在 详细信息-产品版本
+    StringStruct(u'ProductVersion', u'1.2')])    #产品版本，会显示在 详细信息-产品版本
   ]),
 VarFileInfo([VarStruct(u'Translation', [2052, 1200])]) # 语言，中文简体
   ]

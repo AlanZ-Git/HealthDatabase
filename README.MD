@@ -99,10 +99,10 @@ HealthDatabase/
 │   ├── config_manager.py       # 配置管理
 │   ├── ui_components.py        # UI组件库
 │   └── table_components.py     # 表格组件
-├── data/                  # 数据库文件目录
-│   └── *.sqlite          # SQLite数据库文件
-├── Appendix/              # 附件存储目录
-│   └── {user}/           # 按用户分类的附件
+├── user_data/             # 用户数据目录
+│   ├── *.sqlite          # SQLite数据库文件
+│   └── appendix/          # 附件存储目录
+│       └── {user}/       # 按用户分类的附件
 ```
 
 ### 关键文件说明

@@ -1,6 +1,5 @@
 # 用户信息文件
-Appendix/
-data/
+user_data/
 
 # 缓存文件
 __pycache__/

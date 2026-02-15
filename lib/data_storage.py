@@ -9,8 +9,8 @@ class DataStorage:
     """数据库存储管理类，负责所有数据库操作"""
     
     # 默认配置
-    DEFAULT_DATA_DIR = 'data'
-    DEFAULT_APPENDIX_DIR = 'Appendix'
+    DEFAULT_DATA_DIR = 'user_data'
+    DEFAULT_APPENDIX_DIR = 'user_data/appendix'
     MAX_FILENAME_LENGTH = 100
     
     def __init__(self, data_dir: Optional[str] = None, appendix_dir: Optional[str] = None):
