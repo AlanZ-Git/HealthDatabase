@@ -56,6 +56,9 @@ def compile(name: str = '就诊信息管理'):
     使用PyInstaller将主程序(main.py)打包为单文件可执行程序，并自动处理资源文件和版本号。
     :param name: 生成的可执行文件名称
     """
+    # SQLite3 相关文件路径（从 Python 基础环境获取）
+    sqlite_dll = r"C:\ProgramData\anaconda3\envs\current\Library\bin\sqlite3.dll"
+
     # 构建PyInstaller命令
     cmd = [
         ".venv\\Scripts\\pyinstaller.exe",  # 虚拟环境下的pyinstaller路径
@@ -63,6 +66,8 @@ def compile(name: str = '就诊信息管理'):
         "--windowed",                        # 无控制台窗口
         "--onefile",                         # 单文件打包
         "--version-file", "version_info.txt",# 指定版本信息文件
+        "--hidden-import", "sqlite3",        # 显式包含sqlite3模块
+        "--add-binary", f"{sqlite_dll};.",   # 添加 sqlite3.dll 到根目录
         "main.py"                            # 主程序入口
     ]
     try:
@@ -91,6 +96,11 @@ def compile(name: str = '就诊信息管理'):
         # 压缩临时目录为zip包
         zip_path = zip_folder(dir_path)
         new_zip_path = f'dist/{name}_{version}.zip'  # 带版本号的zip包
+
+        # 如果目标zip文件已存在，先删除
+        if os.path.exists(new_zip_path):
+            os.remove(new_zip_path)
+
         os.rename(zip_path, new_zip_path)
         shutil.rmtree(dir_path)  # 删除临时目录
 
