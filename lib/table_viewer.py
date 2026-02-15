@@ -41,8 +41,8 @@ class TableViewer(QWidget):
         self.filter_widgets = []  # 存储筛选输入框控件
         
         # 排序状态管理
-        self.current_sort_column = 'visit_record_id'  # 默认按记录ID排序
-        self.current_sort_order = 'ASC'  # 默认升序 (ASC/DESC)
+        self.current_sort_column = 'date'  # 默认按就诊日期排序
+        self.current_sort_order = 'DESC'  # 默认倒序 (ASC/DESC)
         self.sortable_columns = {1: 'visit_record_id', 2: 'date'}  # 可排序的列：列索引->数据库字段名
         
         self.load_pagination_settings()
