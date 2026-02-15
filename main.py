@@ -57,12 +57,16 @@ class VisitInputWidget(QWidget):
         
         user_layout.add_left_buttons([self.create_user_btn, self.delete_user_btn])
         
-        # 右侧区域：设置按钮
+        # 右侧区域：图片压缩PDF按钮和设置按钮
+        self.compress_btn = QPushButton('图片压缩PDF')
+        self.compress_btn.clicked.connect(self.open_compress_dialog)
+        self.compress_btn.setFixedWidth(110)  # 文本较长，宽度稍大
+
         self.settings_btn = QPushButton('设置')
         self.settings_btn.clicked.connect(self.open_settings)
         self.settings_btn.setFixedWidth(80)  # 设置固定宽度，与刷新按钮保持一致
-        
-        user_layout.add_right_buttons([self.settings_btn])
+
+        user_layout.add_right_buttons([self.compress_btn, self.settings_btn])
         
         # 读取data文件夹下的sqlite文件
         self.load_users()
@@ -208,7 +212,7 @@ class VisitInputWidget(QWidget):
     def open_settings(self):
         """打开设置窗口"""
         self.settings_window = SettingsManager(
-            table_viewer=self.table_viewer, 
+            table_viewer=self.table_viewer,
             config_manager=self.config_manager,
             main_app=self.app
         )
@@ -216,6 +220,12 @@ class VisitInputWidget(QWidget):
         self.settings_window.font_changed.connect(self.apply_font_preview)
         self.settings_window.font_restored.connect(self.restore_original_font)
         self.settings_window.show()
+
+    def open_compress_dialog(self):
+        """打开图片压缩PDF对话框"""
+        from lib.image_compress_dialog import ImageCompressDialog
+        dialog = ImageCompressDialog(parent=self)
+        dialog.exec()
 
     def open_visit_input_dialog(self):
         """打开就诊信息录入弹窗"""
